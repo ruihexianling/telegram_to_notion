@@ -151,14 +151,6 @@ async def initialize_and_start_webhook_app():
     """初始化 Telegram Application 并启动 Flask 服务器。"""
     global _application_initialized
     logging.info("Starting application in Webhook mode...")
-    
-    # --- 调试检查 ---
-    if not hasattr(application, 'create_webhook_handler'):
-        logging.critical(f"FATAL: Application object (type: {type(application)}) does NOT have create_webhook_handler.")
-        logging.critical(f"Available attributes on Application object: {dir(application)}")
-        logging.critical("This usually means python-telegram-bot is not version 20.0 or higher, or there's a serious environment issue.")
-        # exit(1)
-    # --- 调试检查结束 ---
 
     try:
         # 1. 初始化 application
@@ -181,24 +173,21 @@ async def initialize_and_start_webhook_app():
         
         config = Config()
         config.bind = [f"0.0.0.0:{PORT}"]
-
-        # 创建 Telegram Webhook Handler。它是一个 ASGI 兼容的处理器。
-        # telegram_webhook_handler = application.create_webhook_handler()
         
         # 将 Flask 应用和 Telegram Webhook Handler 组合起来
         # 我们需要一个简单的 ASGI app 来分发请求。
-        async def combined_asgi_app(scope, receive, send):
+        async def combined_asgi_app(scope, receive, send, sync_spawn, call_soon):
             if scope['type'] == 'http':
                 # 判断路径是否是 Telegram Webhook 路径
                 if scope['path'] == f'/{WEBHOOK_PATH}':
                     logging.debug(f"Routing to Telegram Webhook Handler for path: {scope['path']}")
                     # 如果是 Telegram Webhook 路径，交给 application 处理
-                    return await application.handle(scope, receive, send)
+                    return await application(scope, receive, send)
                 else:
                     logging.debug(f"Routing to Flask app for path: {scope['path']}")
                     # 其他路径交给 Flask app 处理
                     from hypercorn.app_wrappers import WSGIWrapper
-                    await WSGIWrapper(app, max_body_size=1048576)(scope, receive, send)
+                    await WSGIWrapper(app, max_body_size=1048576)(scope, receive, send, sync_spawn, call_soon)
             else:
                 logging.warning(f"Unhandled ASGI scope type: {scope['type']}")
                 # 对于其他 ASGI scope 类型，可以尝试默认行为或返回错误
