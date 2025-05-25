@@ -1,5 +1,5 @@
 Flask[async]
-python-telegram-bot>=21.6
+python-telegram-bot==21.6
 httpx # python-telegram-bot 依赖
 hypercorn # 用于 Webhook 模式的 ASGI 服务器
 notion_client # 如果您与 Notion API 交互

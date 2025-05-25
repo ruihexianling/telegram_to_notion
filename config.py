@@ -15,7 +15,5 @@ PORT = int(os.getenv('PORT', 8443))
 RENDER_WEBHOOK_URL = os.getenv('RENDER_WEBHOOK_URL')
 WEBHOOK_PATH = os.getenv('WEBHOOK_PATH')
 
-AUTHORIZED_USERS = os.getenv('AUTHORIZED_USERS', '').split(',')
-
 AUTHORIZED_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
 AUTHORIZED_USERS = list(map(int, AUTHORIZED_USERS_STR.split(","))) if AUTHORIZED_USERS_STR else []
