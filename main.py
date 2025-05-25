@@ -193,7 +193,7 @@ async def initialize_and_start_webhook_app():
                 if scope['path'] == f'/{WEBHOOK_PATH}':
                     logging.debug(f"Routing to Telegram Webhook Handler for path: {scope['path']}")
                     # 如果是 Telegram Webhook 路径，交给 application 处理
-                    return await application.__call__(scope, receive, send)
+                    return await application.handle(scope, receive, send)
                 else:
                     logging.debug(f"Routing to Flask app for path: {scope['path']}")
                     # 其他路径交给 Flask app 处理
