@@ -187,7 +187,7 @@ async def initialize_and_start_webhook_app():
         
         # 将 Flask 应用和 Telegram Webhook Handler 组合起来
         # 我们需要一个简单的 ASGI app 来分发请求。
-        async def combined_asgi_app(scope, receive, send, sync_spawn, call_soon):
+        async def combined_asgi_app(scope, receive, send):
             if scope['type'] == 'http':
                 # 判断路径是否是 Telegram Webhook 路径
                 if scope['path'] == f'/{WEBHOOK_PATH}':
@@ -198,7 +198,7 @@ async def initialize_and_start_webhook_app():
                     logging.debug(f"Routing to Flask app for path: {scope['path']}")
                     # 其他路径交给 Flask app 处理
                     from hypercorn.app_wrappers import WSGIWrapper
-                    await WSGIWrapper(app, max_body_size=1048576)(scope, receive, send, sync_spawn, call_soon)
+                    await WSGIWrapper(app, max_body_size=1048576)(scope, receive, send)
             else:
                 logging.warning(f"Unhandled ASGI scope type: {scope['type']}")
                 # 对于其他 ASGI scope 类型，可以尝试默认行为或返回错误
