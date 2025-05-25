@@ -183,8 +183,8 @@ async def initialize_and_start_webhook_app():
         config.bind = [f"0.0.0.0:{PORT}"]
 
         # 创建 Telegram Webhook Handler。它是一个 ASGI 兼容的处理器。
-        telegram_webhook_handler = application.create_webhook_handler()
-
+        # telegram_webhook_handler = application.create_webhook_handler()
+        
         # 将 Flask 应用和 Telegram Webhook Handler 组合起来
         # 我们需要一个简单的 ASGI app 来分发请求。
         async def combined_asgi_app(scope, receive, send):
@@ -192,14 +192,13 @@ async def initialize_and_start_webhook_app():
                 # 判断路径是否是 Telegram Webhook 路径
                 if scope['path'] == f'/{WEBHOOK_PATH}':
                     logging.debug(f"Routing to Telegram Webhook Handler for path: {scope['path']}")
-                    # 如果是 Telegram Webhook 路径，交给 telegram_webhook_handler 处理
-                    return await telegram_webhook_handler(scope, receive, send)
+                    # 如果是 Telegram Webhook 路径，交给 application 处理
+                    return await application(scope, receive, send)
                 else:
                     logging.debug(f"Routing to Flask app for path: {scope['path']}")
                     # 其他路径交给 Flask app 处理
                     from hypercorn.app_wrappers import WSGIWrapper
-                    wsgi_app_wrapper = WSGIWrapper(app, config)
-                    return await wsgi_app_wrapper(scope, receive, send)
+                    await WSGIWrapper(app)(scope, receive, send)
             else:
                 logging.warning(f"Unhandled ASGI scope type: {scope['type']}")
                 # 对于其他 ASGI scope 类型，可以尝试默认行为或返回错误
