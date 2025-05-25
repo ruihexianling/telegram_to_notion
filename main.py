@@ -93,23 +93,16 @@ application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 @app.route(f'/{WEBHOOK_PATH}', methods=['POST'])
 async def save_to_notion_webhook():
     logging.info(f"Received webhook request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-    update = request.get_json()
-    if update:
-        user_id = update.get('message', {}).get('from', {}).get('id')
-        if not is_authorized(user_id):
-            logging.warning(f"Unauthorized access attempt by user {user_id}")
-            update.message.reply_text('Unauthorized access, Please contact the administrator')
-            return jsonify({"error": "Unauthorized"}), 403
-        await update.message.reply_text('您的消息已收到并处理。')
-        logging.debug(f"Received webhook update: {update}")
-        # await application.process_update(update)
-
+    update_data = request.get_json() # 获取原始的 JSON 字典数据
+    if update_data:
         try:
-            # 将字典转换为 telegram.Update 对象
-            # bot 实例需要传入 Update.de_json 来正确解析消息
             update = Update.de_json(update_data, application.bot)
+            user_id = update_data.get('message', {}).get('from', {}).get('id') # 这是获取用户ID的安全方式
+            logging.debug(f"Received update from user {user_id}: {update_data}")
+            if not is_authorized(user_id):
+                logging.warning(f"Unauthorized access attempt by user {user_id}")
+                return jsonify({"error": "Unauthorized"}), 403 # 只返回 HTTP 响应
 
-            # 使用转换后的 Update 对象进行处理
             await application.process_update(update)
             logging.info(f"Finished processing update for user {user_id}.")
 
@@ -117,8 +110,8 @@ async def save_to_notion_webhook():
             logging.error(f"Error processing Telegram update: {e}", exc_info=True)
             # 返回一个错误响应给 Telegram，以便它知道处理失败了
             return jsonify({"error": "Failed to process update"}), 500
-
-    return 'ok'
+    
+    return 'ok' # 成功接收并开始处理，即使处理失败也返回 'ok' 给 Telegram，防止重试过多
 
 
 @app.route('/webhook_status')
