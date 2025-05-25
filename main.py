@@ -101,6 +101,7 @@ async def save_to_notion_webhook():
             logging.debug(f"Received update from user {user_id}: {update_data}")
             if not is_authorized(user_id):
                 logging.warning(f"Unauthorized access attempt by user {user_id}")
+                update.message.reply_text("You are not authorized to use this bot.")
                 return jsonify({"error": "Unauthorized"}), 403 # 只返回 HTTP 响应
 
             await application.process_update(update)
@@ -108,10 +109,9 @@ async def save_to_notion_webhook():
 
         except Exception as e:
             logging.error(f"Error processing Telegram update: {e}", exc_info=True)
-            # 返回一个错误响应给 Telegram，以便它知道处理失败了
             return jsonify({"error": "Failed to process update"}), 500
     
-    return 'ok' # 成功接收并开始处理，即使处理失败也返回 'ok' 给 Telegram，防止重试过多
+    return 'ok'
 
 
 @app.route('/webhook_status')
