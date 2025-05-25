@@ -24,7 +24,7 @@ NOTION_CONFIG = {
     'PAGE_ID': PAGE_ID
 }
 
-# 初始化 Flask 应用
+# 初始化 Flask 应用 (仅用于健康检查和非 webhook 路由)
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
@@ -32,9 +32,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 # 用于标记初始化状态的全局变量
-# 这对于多进程环境可能不完美，但对于单进程模式下的错误排查有帮助
-_application_initialized = False
-
+_application_initialized = False # 仍然保留，用于调试和健康检查
 
 def setup_handlers(app_instance: Application):
     """设置 Telegram 应用并添加处理器。"""
@@ -43,6 +41,7 @@ def setup_handlers(app_instance: Application):
     app_instance.add_handler(CommandHandler("help", help_command))
     logging.info("Command handlers added.")
 
+    # 使用 partial 绑定 notion_config
     bound_handle_any_message = partial(handle_any_message, notion_config=NOTION_CONFIG)
     app_instance.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bound_handle_any_message))
     logging.info("Message handler added.")
@@ -106,61 +105,13 @@ def health():
     logging.info(f"Received health check request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
     return jsonify({
         "status": "ok",
-        "app_initialized": _application_initialized # 添加初始化状态，方便调试
+        "app_initialized": _application_initialized
     }), 200
 
-@app.route(f'/{WEBHOOK_PATH}', methods=['POST'])
-async def save_to_notion_webhook():
-    """处理 Telegram Webhook 更新"""
-    global _application_initialized
-    logging.info(f"Received webhook POST request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-    update_data = request.get_json()
-
-    if not update_data:
-        logging.warning("Received empty webhook update.")
-        return 'ok'
-
-    user_id = None
-    if 'message' in update_data:
-        user_id = update_data['message'].get('from', {}).get('id')
-    elif 'callback_query' in update_data:
-        user_id = update_data['callback_query'].get('from', {}).get('id')
-
-    if user_id is None:
-        logging.warning(f"Could not extract user_id from update: {update_data.keys()}")
-        return 'ok'
-
-    if not is_authorized(user_id):
-        logging.warning(f"Unauthorized access attempt by user {user_id} with update: {update_data}")
-        return 'ok'
-
-    logging.debug(f"Received webhook update data: {update_data}")
-
-    # **关键改动：在处理 webhook 之前，确保 application 已初始化**
-    # 针对可能的多进程或状态丢失问题，这里增加一个检查和延迟初始化机制
-    if not _application_initialized:
-        logging.warning("Application not yet initialized for this process. Attempting deferred initialization.")
-        try:
-            await application.initialize()
-            setup_handlers(application) # 确保 handlers 也被设置
-            # setup_commands 和 set_webhook 不在这里重复调用，因为它们只需要一次
-            _application_initialized = True
-            logging.info("Application successfully initialized in webhook handler.")
-        except Exception as e:
-            logging.error(f"Deferred initialization failed: {e}", exc_info=True)
-            return 'ok' # 初始化失败，返回 ok 避免 Telegram 重试
-
-    try:
-        update = Update.de_json(update_data, application.bot)
-        await application.process_update(update)
-        logging.info(f"Finished processing update for user {user_id}.")
-
-    except Exception as e:
-        logging.error(f"Error processing Telegram update: {e}", exc_info=True)
-        return 'ok'
-    
-    return 'ok'
-
+# **不再手动处理 Webhook 请求，由 Application.create_webhook_handler() 接管**
+# @app.route(f'/{WEBHOOK_PATH}', methods=['POST'])
+# async def save_to_notion_webhook():
+#     ... (此函数将被替换或移除，因为 application 会直接处理 webhook)
 
 @app.route('/webhook_status', methods=['GET'])
 async def webhook_status():
@@ -168,6 +119,7 @@ async def webhook_status():
     logging.info(f"Received /webhook_status request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
     try:
         # 确保在获取 webhook info 之前 application 已经初始化
+        global _application_initialized
         if not _application_initialized:
              logging.warning("Application not initialized for webhook status check. Attempting deferred initialization.")
              await application.initialize()
@@ -182,7 +134,7 @@ async def webhook_status():
             'last_error_message': info.last_error_message,
             'max_connections': info.max_connections,
             'allowed_updates': info.allowed_updates,
-            'app_initialized': _application_initialized # 添加初始化状态
+            'app_initialized': _application_initialized
         }
         logging.info(f"Webhook status: {statuses}")
         return jsonify(statuses)
@@ -207,7 +159,7 @@ async def initialize_and_start_webhook_app():
     try:
         # 1. 初始化 application
         await application.initialize()
-        _application_initialized = True # 标记为已初始化
+        _application_initialized = True
         logging.info("Telegram Application initialized.")
 
         # 2. 设置处理器
@@ -219,15 +171,43 @@ async def initialize_and_start_webhook_app():
         # 4. 设置 Webhook
         await set_webhook(application)
 
-        logging.info(f"Starting Flask app with Hypercorn on port {PORT} for webhook mode.")
+        logging.info(f"Starting Hypercorn with combined Flask and Telegram webhook handler on port {PORT}.")
         from hypercorn.config import Config
         from hypercorn.asyncio import serve as hypercorn_serve
         
         config = Config()
         config.bind = [f"0.0.0.0:{PORT}"]
-        
-        await hypercorn_serve(app, config)
+
+        # **重点：创建 Telegram Webhook Handler**
+        # 这是由 python-telegram-bot 自身管理事件循环的 ASGI 应用
+        telegram_webhook_handler = application.create_webhook_handler()
+
+        # **将 Flask 应用和 Telegram Webhook Handler 组合起来**
+        # 我们需要一个方法来路由请求。这里使用一个简单的 ASGI app 来分发。
+        async def combined_asgi_app(scope, receive, send):
+            if scope['type'] == 'http':
+                # 判断路径是否是 Telegram Webhook 路径
+                if scope['path'] == f'/{WEBHOOK_PATH}':
+                    logging.debug(f"Routing to Telegram Webhook Handler for path: {scope['path']}")
+                    # 如果是 Telegram Webhook 路径，交给 telegram_webhook_handler 处理
+                    return await telegram_webhook_handler(scope, receive, send)
+                else:
+                    logging.debug(f"Routing to Flask app for path: {scope['path']}")
+                    # 其他路径交给 Flask app 处理
+                    # Werkzeug 的 Flask WSGI 应用需要适配成 ASGI
+                    # Flask 2.0+ 已经内置了部分 ASGI 兼容性，但完整的 ASGI 适配器更健壮
+                    from hypercorn.app_wrappers import WSGIWrapper
+                    wsgi_app_wrapper = WSGIWrapper(app, config)
+                    return await wsgi_app_wrapper(scope, receive, send)
+            # 如果是其他类型的 scope (如 WebSocket)，Hypercorn 也会处理
+            else:
+                logging.warning(f"Unhandled ASGI scope type: {scope['type']}")
+                return await serve(scope, receive, send) # 默认交给 Hypercorn 的 serve (通常是 WSGI 或其他)
+
+        # 启动 Hypercorn，并传入我们组合的 ASGI 应用
+        await hypercorn_serve(combined_asgi_app, config)
         logging.info("Hypercorn server stopped.")
+
     except Exception as e:
         logging.critical(f"Fatal error during webhook app startup: {e}", exc_info=True)
         exit(1)
@@ -237,7 +217,6 @@ def start_polling_app():
     """以 Long Polling 模式启动 Bot。"""
     logging.info("Starting application in Long Polling mode...")
     
-    # Long Polling 模式不需要显式调用 initialize，run_polling 内部会处理
     setup_handlers(application)
     
     loop = asyncio.get_event_loop()
