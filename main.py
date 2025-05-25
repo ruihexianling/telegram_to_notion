@@ -108,10 +108,6 @@ def health():
         "app_initialized": _application_initialized
     }), 200
 
-# **不再手动处理 Webhook 请求，由 Application.create_webhook_handler() 接管**
-# @app.route(f'/{WEBHOOK_PATH}', methods=['POST'])
-# async def save_to_notion_webhook():
-#     ... (此函数将被替换或移除，因为 application 会直接处理 webhook)
 
 @app.route('/webhook_status', methods=['GET'])
 async def webhook_status():
@@ -156,6 +152,14 @@ async def initialize_and_start_webhook_app():
     global _application_initialized
     logging.info("Starting application in Webhook mode...")
     
+    # --- 调试检查 ---
+    if not hasattr(application, 'create_webhook_handler'):
+        logging.critical(f"FATAL: Application object (type: {type(application)}) does NOT have create_webhook_handler.")
+        logging.critical(f"Available attributes on Application object: {dir(application)}")
+        logging.critical("This usually means python-telegram-bot is not version 20.0 or higher, or there's a serious environment issue.")
+        exit(1)
+    # --- 调试检查结束 ---
+
     try:
         # 1. 初始化 application
         await application.initialize()
@@ -178,12 +182,11 @@ async def initialize_and_start_webhook_app():
         config = Config()
         config.bind = [f"0.0.0.0:{PORT}"]
 
-        # **重点：创建 Telegram Webhook Handler**
-        # 这是由 python-telegram-bot 自身管理事件循环的 ASGI 应用
+        # 创建 Telegram Webhook Handler。它是一个 ASGI 兼容的处理器。
         telegram_webhook_handler = application.create_webhook_handler()
 
-        # **将 Flask 应用和 Telegram Webhook Handler 组合起来**
-        # 我们需要一个方法来路由请求。这里使用一个简单的 ASGI app 来分发。
+        # 将 Flask 应用和 Telegram Webhook Handler 组合起来
+        # 我们需要一个简单的 ASGI app 来分发请求。
         async def combined_asgi_app(scope, receive, send):
             if scope['type'] == 'http':
                 # 判断路径是否是 Telegram Webhook 路径
@@ -194,15 +197,16 @@ async def initialize_and_start_webhook_app():
                 else:
                     logging.debug(f"Routing to Flask app for path: {scope['path']}")
                     # 其他路径交给 Flask app 处理
-                    # Werkzeug 的 Flask WSGI 应用需要适配成 ASGI
-                    # Flask 2.0+ 已经内置了部分 ASGI 兼容性，但完整的 ASGI 适配器更健壮
                     from hypercorn.app_wrappers import WSGIWrapper
                     wsgi_app_wrapper = WSGIWrapper(app, config)
                     return await wsgi_app_wrapper(scope, receive, send)
-            # 如果是其他类型的 scope (如 WebSocket)，Hypercorn 也会处理
             else:
                 logging.warning(f"Unhandled ASGI scope type: {scope['type']}")
-                return await serve(scope, receive, send) # 默认交给 Hypercorn 的 serve (通常是 WSGI 或其他)
+                # 对于其他 ASGI scope 类型，可以尝试默认行为或返回错误
+                # 这里为了简单，我们让 Hypercorn 默认处理（通常会失败或忽略）
+                # 实际生产中可能需要更严谨的 ASGI 路由
+                await send({'type': 'http.response.start', 'status': 404, 'headers': []})
+                await send({'type': 'http.response.body', 'body': b'Not Found'})
 
         # 启动 Hypercorn，并传入我们组合的 ASGI 应用
         await hypercorn_serve(combined_asgi_app, config)
@@ -229,6 +233,7 @@ def start_polling_app():
 
 if __name__ == "__main__":
     try:
+        # 确保所有必要的配置变量都已定义
         _ = TELEGRAM_BOT_TOKEN
         _ = RENDER_WEBHOOK_URL
         _ = WEBHOOK_PATH
@@ -240,8 +245,10 @@ if __name__ == "__main__":
         exit(1)
 
     if USE_WEBHOOK:
+        # 当 USE_WEBHOOK 为 True 时，运行异步的 webhook 启动函数
         asyncio.run(initialize_and_start_webhook_app())
     else:
+        # 当 USE_WEBHOOK 为 False 时，运行同步的 long polling 启动函数
         start_polling_app()
     
     logging.info("Application finished.")
