@@ -53,7 +53,9 @@ async def setup_commands(application):
 
 async def start_command(update, context):
     """处理 /start 命令"""
+    logging.info(f"*** Entering start_command for user: {update.message.from_user.id} ***")
     await update.message.reply_text('Welcome to the bot!')
+    logging.info(f"*** Replied to /start command for user: {update.message.from_user.id} ***")
 
 async def help_command(update, context):
     """处理 /help 命令"""
