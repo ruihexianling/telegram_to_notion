@@ -157,7 +157,7 @@ async def initialize_and_start_webhook_app():
         logging.critical(f"FATAL: Application object (type: {type(application)}) does NOT have create_webhook_handler.")
         logging.critical(f"Available attributes on Application object: {dir(application)}")
         logging.critical("This usually means python-telegram-bot is not version 20.0 or higher, or there's a serious environment issue.")
-        exit(1)
+        # exit(1)
     # --- 调试检查结束 ---
 
     try:
