@@ -1,4 +1,5 @@
 import asyncio
+import os
 import logging
 from functools import partial
 
@@ -6,8 +7,6 @@ from flask import Flask, jsonify, request
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from werkzeug.middleware.proxy_fix import ProxyFix
-from hypercorn.config import Config
-from hypercorn.asyncio import serve as hypercorn_serve
 
 from config import *
 from notion_bot_utils import handle_any_message
@@ -27,14 +26,12 @@ NOTION_CONFIG = {
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
-# 全局的 Application 实例，所有处理器都将注册到这个实例上
-# IMPORTANT: Initialize it here and only once.
+# 全局的 Application 实例
 application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 def setup_handlers(app_instance: Application):
     """设置 Telegram 应用并添加处理器。"""
     logging.info("Setting up Telegram handlers...")
-
     app_instance.add_handler(CommandHandler("start", start_command))
     app_instance.add_handler(CommandHandler("help", help_command))
     logging.info("Command handlers added.")
@@ -42,6 +39,7 @@ def setup_handlers(app_instance: Application):
     bound_handle_any_message = partial(handle_any_message, notion_config=NOTION_CONFIG)
     app_instance.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bound_handle_any_message))
     logging.info("Message handler added.")
+
 
 async def setup_commands(app_instance: Application):
     """设置机器人的命令菜单。"""
@@ -58,11 +56,13 @@ async def start_command(update: Update, context):
     await update.message.reply_text('Welcome to the bot!')
     logging.info(f"Replied to /start command for user: {update.message.from_user.id}")
 
+
 async def help_command(update: Update, context):
     """处理 /help 命令"""
     logging.info(f"Received /help command from user: {update.message.from_user.id}")
     await update.message.reply_text('Here is how you can use the bot...')
     logging.info(f"Replied to /help command for user: {update.message.from_user.id}")
+
 
 async def set_webhook(app_instance: Application):
     """设置 Telegram 机器人的 Webhook URL。"""
@@ -119,7 +119,6 @@ async def save_to_notion_webhook():
     logging.debug(f"Received webhook update data: {update_data}")
 
     try:
-        # It's crucial that 'application' is already initialized at this point.
         update = Update.de_json(update_data, application.bot)
         await application.process_update(update)
         logging.info(f"Finished processing update for user {user_id}.")
@@ -130,11 +129,11 @@ async def save_to_notion_webhook():
     
     return 'ok'
 
+
 @app.route('/webhook_status', methods=['GET'])
 async def webhook_status():
     """获取 Webhook 状态"""
     logging.info(f"Received /webhook_status request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-
     try:
         info = await application.bot.get_webhook_info()
         statuses = {
@@ -152,50 +151,65 @@ async def webhook_status():
         logging.error(f"Error fetching webhook status: {e}", exc_info=True)
         return jsonify({"error": "Failed to get webhook status", "details": str(e)}), 500
 
+
 def is_authorized(user_id):
     """检查用户是否在授权列表中"""
     if user_id in AUTHORIZED_USERS:
         return True
     return False
 
-# --- Initialization function for both modes ---
-async def initialize_application():
-    """Initializes the Telegram Application instance."""
-    logging.info("Initializing Telegram Application...")
+# --- 主函数入口 ---
+
+# 将 main() 函数从 async 函数改为同步函数，因为它将直接调用 application.run_polling()
+# 或者更准确地说，将负责 Long Polling 的部分独立出来。
+# 为了保持 Webhook 模式的 `async def main()` 结构不变，我们调整 `if __name__ == "__main__":` 块。
+
+async def start_bot_async():
+    """异步启动 bot 的核心逻辑（webhook 模式）"""
+    logging.info("Application starting (async part)...")
     setup_handlers(application)
     await setup_commands(application)
-    await application.initialize() # This is the crucial step
 
-# --- Main entry point ---
-async def main():
-    """Runs the Telegram bot application."""
-    try:
-        logging.info("Application starting...")
+    if USE_WEBHOOK:
+        logging.info("USE_WEBHOOK is true. Preparing for webhook mode.")
+        await application.initialize()
+        await set_webhook(application)
 
-        # Initialize the application once, regardless of mode
-        await initialize_application()
+        logging.info(f"Starting Flask app with Hypercorn on port {PORT} for webhook mode.")
+        from hypercorn.config import Config
+        from hypercorn.asyncio import serve as hypercorn_serve
+        
+        config = Config()
+        config.bind = [f"0.0.0.0:{PORT}"]
+        await hypercorn_serve(app, config)
+    else:
+        logging.error("This async function is only for Webhook mode. Long polling should be started differently.")
+        # 在这里不应该执行 long polling 逻辑，因为外部调用方式不同
 
-        if USE_WEBHOOK:
-            logging.info("USE_WEBHOOK is true. Preparing for webhook mode.")
-            await set_webhook(application)
 
-            logging.info(f"Starting Flask app with Hypercorn on port {PORT} for webhook mode.")
-            config = Config()
-            config.bind = [f"0.0.0.0:{PORT}"]
-            # Use 'asyncio.run' for starting the Hypercorn server if this is the top-level entry point,
-            # or ensure it runs within an existing asyncio event loop.
-            # In your original code, you are calling hypercorn_serve directly within asyncio.run(main()), which is fine.
-            await hypercorn_serve(app, config)
-            
-        else:
-            logging.info("USE_WEBHOOK is false or not set. Running in long polling mode.")
-            await application.run_polling(poll_interval=2)
-            logging.info("Bot stopped long polling.")
+def start_bot_sync():
+    """同步启动 bot 的核心逻辑（long polling 模式）"""
+    logging.info("Application starting (sync part for long polling)...")
+    setup_handlers(application)
+    # 对于 Long Polling 模式，setup_commands 也可以是同步的，
+    # 但由于它内部有 await，所以最好还是在 async context 中运行
+    # 最简单的做法是让 run_polling 自己处理 setup_commands
+    # 或者像当前这样，在 run_polling 之前 await setup_commands
+    
+    # 注意：telegram.ext.Application.run_polling() 内部会管理自己的事件循环
+    # 所以它本身就是同步的入口点，不应该再被 asyncio.run() 包装。
+    
+    # 确保 setup_commands 在 application.run_polling() 之前被调用
+    # 鉴于 setup_commands 是 async 的，我们需要在某个事件循环中调用它
+    # 一个常见的模式是在 run_polling 之前先手动 initialize 和 setup_commands
+    
+    loop = asyncio.get_event_loop() # 获取当前事件循环
+    loop.run_until_complete(setup_commands(application)) # 在当前循环中运行一次 setup_commands
 
-    except Exception as e:
-        logging.critical(f"Application failed to start: {e}", exc_info=True)
+    logging.info("USE_WEBHOOK is false. Running in long polling mode.")
+    application.run_polling(poll_interval=2) # 直接调用，不使用 await
+    logging.info("Bot stopped long polling.")
 
-    logging.info("Application finished.")
 
 if __name__ == "__main__":
     try:
@@ -209,4 +223,12 @@ if __name__ == "__main__":
         logging.critical(f"Configuration error: {e}. Please ensure all required variables are defined in config.py")
         exit(1)
 
-    asyncio.run(main())
+    if USE_WEBHOOK:
+        # Webhook 模式，使用 asyncio.run 启动异步的 main 函数
+        asyncio.run(start_bot_async())
+    else:
+        # Long Polling 模式，直接调用同步的启动函数
+        # run_polling 内部会处理事件循环，所以不需要 asyncio.run()
+        start_bot_sync() # 直接调用同步函数
+    
+    logging.info("Application finished.")
