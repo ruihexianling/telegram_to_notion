@@ -187,7 +187,7 @@ async def initialize_and_start_webhook_app():
         
         # 将 Flask 应用和 Telegram Webhook Handler 组合起来
         # 我们需要一个简单的 ASGI app 来分发请求。
-        async def combined_asgi_app(scope, receive, send):
+        async def combined_asgi_app(scope, receive, send, sync_spawn, call_soon):
             if scope['type'] == 'http':
                 # 判断路径是否是 Telegram Webhook 路径
                 if scope['path'] == f'/{WEBHOOK_PATH}':
