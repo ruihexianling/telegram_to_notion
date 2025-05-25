@@ -1,8 +1,7 @@
-python-telegram-bot==21.6
-flask[async]
-python-dotenv==1.0.0
-notion-client==2.2.0
-uvicorn
-pytz
-aiohttp
-asyncio
+Flask
+python-telegram-bot
+httpx # python-telegram-bot 依赖
+hypercorn # 用于 Webhook 模式的 ASGI 服务器
+# notion_client # 如果您与 Notion API 交互
+# anyio # hypercorn 可能依赖
+# httpcore # hypercorn 可能依赖
