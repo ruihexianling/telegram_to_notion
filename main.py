@@ -98,6 +98,7 @@ async def save_to_notion_webhook():
             logging.warning(f"Unauthorized access attempt by user {user_id}")
             update.message.reply_text('Unauthorized access, Please contact the administrator')
             return jsonify({"error": "Unauthorized"}), 403
+        await update.message.reply_text('您的消息已收到并处理。')
         logging.debug(f"Received webhook update: {update}")
         await application.process_update(update)
     return 'ok'
@@ -117,16 +118,13 @@ async def webhook_status():
 
     statuses = {}
     info = application.bot.get_webhook_info()
-    statuses[TELEGRAM_BOT_TOKEN[:8]] = {
-        "url": info.url,
-        "has_custom_certificate": info.has_custom_certificate,
-        "pending_update_count": info.pending_update_count,
-        "last_error_date": info.last_error_date,
-        "last_error_message": info.last_error_message,
-        "max_connections": info.max_connections,
-        "allows_anonymous": info.allows_anonymous,
-        "ip_address": info.ip_address
-    }
+    statuses['webhook_url'] = info.url
+    statuses['pending_updates_count'] = info.pending_update_count
+    statuses['last_error_date'] = info.last_error_date
+    statuses['last_error_message'] = info.last_error_message
+    statuses['max_connections'] = info.max_connections
+    statuses['allowed_updates'] = info.allowed_updates
+    logging.info(f"Webhook status: {statuses}")
     return jsonify(statuses)
 
 def run_long_polling(app):
@@ -155,11 +153,6 @@ async def main():
     try:
         logging.info("Starting application...")
         global application
-        application = (
-                Application.builder()
-                .token(TELEGRAM_BOT_TOKEN)
-                .build()
-            )
 
         # 设置 Telegram 应用并添加处理器
         setup_handlers(application)
