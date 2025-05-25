@@ -9,7 +9,6 @@ from telegram.ext import ContextTypes, JobQueue
 from typing import Tuple, List, Dict
 import pytz
 import logging
-import asyncio
 import aiohttp  # 确保已导入 aiohttp
 
 # 配置 logging
