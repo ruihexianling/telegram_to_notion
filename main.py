@@ -4,7 +4,7 @@ import logging
 from functools import partial
 
 from flask import Flask, jsonify, request
-from telegram import BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -100,7 +100,22 @@ async def save_to_notion_webhook():
             return jsonify({"error": "Unauthorized"}), 403
         await update.message.reply_text('您的消息已收到并处理。')
         logging.debug(f"Received webhook update: {update}")
-        await application.process_update(update)
+        # await application.process_update(update)
+
+        try:
+            # 将字典转换为 telegram.Update 对象
+            # bot 实例需要传入 Update.de_json 来正确解析消息
+            update = Update.de_json(update_data, application.bot)
+
+            # 使用转换后的 Update 对象进行处理
+            await application.process_update(update)
+            logging.info(f"Finished processing update for user {user_id}.")
+
+        except Exception as e:
+            logging.error(f"Error processing Telegram update: {e}", exc_info=True)
+            # 返回一个错误响应给 Telegram，以便它知道处理失败了
+            return jsonify({"error": "Failed to process update"}), 500
+
     return 'ok'
 
 
