@@ -1,4 +1,4 @@
-Flask
+FlaskFlask[async]
 python-telegram-bot
 httpx # python-telegram-bot 依赖
 hypercorn # 用于 Webhook 模式的 ASGI 服务器
