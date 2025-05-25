@@ -9,138 +9,126 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import *
-from notion_bot_utils import handle_any_message
 
 # 配置日志记录
+from notion_bot_utils import handle_any_message
+
+# logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
 logging.getLogger('telegram').setLevel(logging.DEBUG)
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
 
-# Notion 配置
 NOTION_CONFIG = {
     'NOTION_KEY': NOTION_KEY,
     'NOTION_VERSION': NOTION_VERSION,
     'PAGE_ID': PAGE_ID
 }
 
-# 初始化 Flask 应用 (仅用于健康检查和非 webhook 路由)
 app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)  # 处理X-Forwarded-For
 
-# 全局的 Application 实例
-application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-# 用于标记初始化状态的全局变量
-_application_initialized = False # 仍然保留，用于调试和健康检查
-
-def setup_handlers(app_instance: Application):
+def setup_handlers(application):
     """设置 Telegram 应用并添加处理器。"""
-    logging.info("Setting up Telegram handlers...")
-    app_instance.add_handler(CommandHandler("start", start_command))
-    app_instance.add_handler(CommandHandler("help", help_command))
-    logging.info("Command handlers added.")
+    logging.info("Application starting...")
 
-    # 使用 partial 绑定 notion_config
+    # 添加处理器
+    logging.info("Adding command and message handlers...")
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+
+    # 使用偏函数将 NOTION_CONFIG 传递给 handle_any_message
     bound_handle_any_message = partial(handle_any_message, notion_config=NOTION_CONFIG)
-    app_instance.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bound_handle_any_message))
-    logging.info("Message handler added.")
+
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bound_handle_any_message))
+    logging.info("Handlers added.")
 
 
-async def setup_commands(app_instance: Application):
+async def setup_commands(application):
     """设置机器人的命令菜单。"""
     commands = [
         BotCommand('start', 'Start the bot'),
         BotCommand('help', 'Get help'),
     ]
-    try:
-        await app_instance.bot.set_my_commands(commands)
-        logging.info("Telegram commands set.")
-    except Exception as e:
-        logging.error(f"Error setting Telegram commands: {e}", exc_info=True)
+    await application.bot.set_my_commands(commands)
+    logging.info("Commands set.")
 
-
-async def start_command(update: Update, context):
+async def start_command(update, context):
     """处理 /start 命令"""
-    logging.info(f"Received /start command from user: {update.message.from_user.id}")
+    logging.info(f"*** Entering start_command for user: {update.message.from_user.id} ***")
     await update.message.reply_text('Welcome to the bot!')
-    logging.info(f"Replied to /start command for user: {update.message.from_user.id}")
+    logging.info(f"*** Replied to /start command for user: {update.message.from_user.id} ***")
 
-
-async def help_command(update: Update, context):
+async def help_command(update, context):
     """处理 /help 命令"""
-    logging.info(f"Received /help command from user: {update.message.from_user.id}")
     await update.message.reply_text('Here is how you can use the bot...')
-    logging.info(f"Replied to /help command for user: {update.message.from_user.id}")
 
-
-async def set_webhook(app_instance: Application):
+async def set_webhook(application):
     """设置 Telegram 机器人的 Webhook URL。"""
     webhook_url = f"{RENDER_WEBHOOK_URL.rstrip('/')}/{WEBHOOK_PATH}"
     if webhook_url:
         try:
-            current_webhook_info = await app_instance.bot.get_webhook_info()
-            if current_webhook_info.url != webhook_url:
-                await app_instance.bot.set_webhook(webhook_url)
-                logging.info(f"Webhook URL set to: {webhook_url}")
-            else:
-                logging.info(f"Webhook URL already set to: {webhook_url}. No change needed.")
+            await application.bot.set_webhook(webhook_url)
+            logging.info(f"Webhook URL 设置为: {webhook_url}")
         except Exception as e:
-            logging.error(f"Error setting Webhook URL: {e}", exc_info=True)
+            logging.error(f"设置 Webhook URL 时发生错误: {e}")
     else:
-        logging.warning("RENDER_WEBHOOK_URL or WEBHOOK_PATH is not set. Cannot set webhook.")
+        logging.warning("WEBHOOK_URL 环境变量未设置。")
 
-
-# --- Flask 路由 ---
 
 @app.route('/')
 def index():
-    """根路由，用于健康检查或简单访问"""
-    logging.info(f"Received root request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
+    """根路由，用于健康检查"""
+    logging.info(f"收到根路由请求: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
     return 'Hello, World!'
 
 @app.route('/healthz', methods=['GET'])
 def health():
-    """健康检查路由"""
-    logging.info(f"Received health check request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
+    # 打印请求信息
+    logging.info(f"收到健康检查请求: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
     return jsonify({
-        "status": "ok",
-        "app_initialized": _application_initialized
+        "status": "ok"
     }), 200
 
 
 @app.route('/webhook_status', methods=['GET'])
 async def webhook_status():
     """获取 Webhook 状态"""
-    logging.info(f"Received /webhook_status request: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-    try:
-        # 确保在获取 webhook info 之前 application 已经初始化
-        global _application_initialized
-        if not _application_initialized:
-             logging.warning("Application not initialized for webhook status check. Attempting deferred initialization.")
-             await application.initialize()
-             _application_initialized = True
+    logging.info(f"收到/webhook_status请求: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
 
-        info = await application.bot.get_webhook_info()
-        statuses = {
-            'webhook_url': info.url,
-            'has_custom_certificate': info.has_custom_certificate,
-            'pending_update_count': info.pending_update_count,
-            'last_error_date': info.last_error_date,
-            'last_error_message': info.last_error_message,
-            'max_connections': info.max_connections,
-            'allowed_updates': info.allowed_updates,
-            'app_initialized': _application_initialized
-        }
-        logging.info(f"Webhook status: {statuses}")
-        return jsonify(statuses)
-    except Exception as e:
-        logging.error(f"Error fetching webhook status: {e}", exc_info=True)
-        return jsonify({"error": "Failed to get webhook status", "details": str(e)}), 500
+    # 添加身份验证检查
+    auth_header = request.headers.get('Authorization')
 
+    # if not auth_header or auth_header != f"Bearer {WEBHOOK_SECRET}":
+    #     logging.warning("未授权的访问尝试")
+    #     return jsonify({"error": "Unauthorized"}), 401
+
+    statuses = {}
+    info = application.bot.get_webhook_info()
+    statuses['webhook_url'] = info.url
+    statuses['pending_updates_count'] = info.pending_update_count
+    statuses['last_error_date'] = info.last_error_date
+    statuses['last_error_message'] = info.last_error_message
+    statuses['max_connections'] = info.max_connections
+    statuses['allowed_updates'] = info.allowed_updates
+    logging.info(f"Webhook status: {statuses}")
+    return jsonify(statuses)
+
+def run_long_polling(app):
+    logging.info("Starting bot in long polling mode...")
+    logging.info("Bot started in long polling mode. Press Ctrl-C to stop.")
+    # 运行 bot 直到用户按下 Ctrl-C
+    app.run_polling(poll_interval=2)
+
+
+def run_webhook(flask_app, webhook_url, port):
+    if not webhook_url:
+        logging.error("WEBHOOK_URL not found in environment variables. Webhook mode requires WEBHOOK_URL.")
+        exit(1)
+
+    logging.info(f"Starting Flask app for webhook on port {port}...")
+    # 在生产环境中使用 Gunicorn 或 uWSGI
+    flask_app.run(host='0.0.0.0', port=port)
 
 def is_authorized(user_id):
-    """检查用户是否在授权列表中"""
     if user_id in AUTHORIZED_USERS:
         return True
     return False
@@ -161,7 +149,7 @@ async def initialize_and_start_webhook_app():
         # 2. 设置处理器
         setup_handlers(application)
         
-        # 3. 设置命令
+        # 设置命令菜单
         await setup_commands(application)
 
         # 4. 设置 Webhook
@@ -240,3 +228,6 @@ if __name__ == "__main__":
         start_polling_app()
     
     logging.info("Application finished.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
