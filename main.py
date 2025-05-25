@@ -147,7 +147,7 @@ def main():
 
         if USE_WEBHOOK:
             logging.info("USE_WEBHOOK is true. Running in webhook mode.")
-            run_webhook(application, WEBHOOK_URL, PORT)
+            run_webhook(app, WEBHOOK_URL, PORT)
         else:
             logging.info("USE_WEBHOOK is false or not set. Running in long polling mode.")
             run_long_polling(application)
