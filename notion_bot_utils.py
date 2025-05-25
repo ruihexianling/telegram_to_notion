@@ -13,7 +13,7 @@ import asyncio
 import aiohttp  # 确保已导入 aiohttp
 
 # 配置 logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
 
 
 # --- Notion API Helper Functions ---

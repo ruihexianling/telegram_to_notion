@@ -1,7 +1,8 @@
 python-telegram-bot==21.6
-Flask==3.0.3
+flask[async]
 python-dotenv==1.0.0
 notion-client==2.2.0
 uvicorn
 pytz
 aiohttp
+asyncio
