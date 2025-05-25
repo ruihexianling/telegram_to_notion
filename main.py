@@ -66,12 +66,12 @@ def help_command(update, context):
     """处理 /help 命令"""
     update.message.reply_text('Here is how you can use the bot...')
 
-async def set_webhook(application):
+def set_webhook(application):
     """设置 Telegram 机器人的 Webhook URL。"""
-    webhook_url = os.getenv('WEBHOOK_URL')
+    webhook_url = WEBHOOK_URL
     if webhook_url:
         try:
-            await application.bot.set_webhook(webhook_url)
+            application.bot.set_webhook(webhook_url)
             logging.info(f"Webhook URL 设置为: {webhook_url}")
         except Exception as e:
             logging.error(f"设置 Webhook URL 时发生错误: {e}")
@@ -79,10 +79,10 @@ async def set_webhook(application):
         logging.warning("WEBHOOK_URL 环境变量未设置。")
 
 
-async def post_init(app: Application):
+def post_init(app: Application):
     """设置命令列表和 Webhook (新增或修改)"""
     # 设置命令列表
-    await app.bot.set_my_commands([
+    app.bot.set_my_commands([
         BotCommand("start", "Start the bot"),
         BotCommand("help", "Show help message"),
     ])
@@ -91,7 +91,7 @@ async def post_init(app: Application):
     # 设置 Webhook (仅在 Webhook 模式下)
     if USE_WEBHOOK and WEBHOOK_URL:
         try:
-            await app.bot.set_webhook(url=WEBHOOK_URL)
+            app.bot.set_webhook(url=WEBHOOK_URL)
             logging.info(f"Webhook set to {WEBHOOK_URL}")
         except Exception as e:
             logging.error(f"Failed to set webhook: {e}")
