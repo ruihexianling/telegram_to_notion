@@ -9,3 +9,4 @@ fastapi
 asyncio
 werkzeug
 python-multipart
+requests

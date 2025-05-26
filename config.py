@@ -17,3 +17,5 @@ WEBHOOK_PATH = os.getenv('WEBHOOK_PATH')
 
 AUTHORIZED_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
 AUTHORIZED_USERS = list(map(int, AUTHORIZED_USERS_STR.split(","))) if AUTHORIZED_USERS_STR else []
+
+API_SECRET = os.getenv('API_SECRET')
