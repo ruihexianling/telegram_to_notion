@@ -12,12 +12,12 @@ from pydantic import BaseModel
 from telegram import Update
 
 from config import *
-from notion_bot_utils import upload_as_block, save_upload_file_temporarily
+from notion_bot_utils import create_and_append_to_notion_page, save_upload_file_temporarily
 from bot_setup import setup_bot
 
 # === 配置日志 ===
 logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
-logging.getLogger('telegram').setLevel(logging.DEBUG)
+logging.getLogger('telegram').setLevel(logging.INFO)
 
 # === 配置 Notion 参数 ===
 NOTION_CONFIG = {
@@ -53,7 +53,7 @@ async def root():
 
 @app.get("/healthz")
 async def healthz(request: Request):
-    logging.info(f"Received Health check: {request.client.host} {request.method} {request.url.path}")
+    logging.info(f"Received Health check: {request.url.path}")
     return JSONResponse({"status": "ok"})
 
 @app.post(f"/{WEBHOOK_PATH}")
@@ -86,12 +86,8 @@ class UploadPayload(BaseModel):
     content: Optional[str] = None
     file: Optional[UploadFile] = File(None)
 
-@app.post("/api/upload_as_block")
-async def api_upload(
-    title: str = Form(...),
-    content: Optional[str] = Form(None),
-    file: Optional[UploadFile] = Form(None)
-):
+# @app.post("/api/upload")
+async def api_upload(title: str = Form(...), content: Optional[str] = Form(None), file: Optional[UploadFile] = Form(None), append_only: bool = False):
     logging.info(f"Received API upload request: title='{title}', content_provided={content is not None}, file_provided={file is not None}")
 
     if not content and not file:
@@ -111,12 +107,14 @@ async def api_upload(
             logging.info(f"File saved temporarily: {file_path}")
 
         # Call the unified upload_as_block function
-        await upload_as_block(
+        await create_and_append_to_notion_page(
             title=title,
+            notion_config=NOTION_CONFIG,
             content=content, # Pass content even if file is present, upload_as_block handles it
             file_path=file_path,
             file_name=file_name,
-            content_type=content_type
+            content_type=content_type,
+            append_only=append_only
         )
 
         logging.info("API upload successful.")
@@ -133,6 +131,15 @@ async def api_upload(
                 logging.info(f"Cleaned up temporary directory: {temp_dir}")
             except Exception as cleanup_e:
                 logging.error(f"Error cleaning up temporary directory {temp_dir}: {cleanup_e}", exc_info=True)
+
+@app.post("/api/upload_as_page")
+async def api_upload_as_page(title: str = Form(...), content: Optional[str] = Form(None), file: Optional[UploadFile] = Form(None)):
+    return await api_upload(title, content, file, append_only=False)
+
+@app.post("/api/upload_as_block")
+async def api_upload_as_block(title: str = Form(...), content: Optional[str] = Form(None), file: Optional[UploadFile] = Form(None)):
+    return await api_upload(title, content, file, append_only=True)
+
 
 @app.on_event("startup")
 async def startup_event():
