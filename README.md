@@ -6,19 +6,14 @@
 
 ## 项目结构
 
-```
-.
-├── LICENSE
-├── README.md
-├── bot_setup.py
-├── common_utils.py
-├── config.py
-├── main.py
-├── notion_bot_utils.py
-├── requirements.txt
-├── run_local_bot.py
-└── webhook_handlers.py
-```
+- **main.py**: 项目的入口文件，负责初始化和启动整个应用。
+- **run_local_bot.py**: 本地运行的Telegram Bot，用于测试和开发。
+- **notion_bot_utils.py**: 包含与Notion API交互的实用函数。
+- **webhook_handlers.py**: 处理来自Telegram的webhook请求。
+- **common_utils.py**: 提供项目中通用的工具函数。
+- **config.py**: 配置文件，存储API密钥和其他配置信息。
+- **requirements.txt**: 项目依赖的Python库列表。
+- **README.md**: 项目的说明文档。
 
 ## 主要功能
 
