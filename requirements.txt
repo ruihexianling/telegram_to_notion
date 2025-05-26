@@ -1,7 +1,11 @@
-python-telegram-bot==21.6
-Flask==3.0.3
-python-dotenv==1.0.0
-notion-client==2.2.0
+python-telegram-bot>=21.6
+httpx # python-telegram-bot 依赖
+notion_client # 如果您与 Notion API 交互
+python-dotenv
 uvicorn
 pytz
 aiohttp
+fastapi
+asyncio
+werkzeug
+python-multipart

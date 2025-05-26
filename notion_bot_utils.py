@@ -1,19 +1,21 @@
 import os
-import json
 import datetime
 import mimetypes
 
 # import requests # 移除 requests 导入
+import shutil
+
+from fastapi import UploadFile
 from telegram import Update
-from telegram.ext import ContextTypes, JobQueue
-from typing import Tuple, List, Dict
+from telegram.ext import ContextTypes
+from typing import Tuple, List, Dict, Optional
 import pytz
 import logging
-import asyncio
 import aiohttp  # 确保已导入 aiohttp
 
+
 # 配置 logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
 
 
 # --- Notion API Helper Functions ---
@@ -157,9 +159,7 @@ async def create_notion_page(notion_key: str, notion_version: str, parent_page_i
         raise  # Re-raise the exception
 
 
-async def append_block_to_notion_page(notion_key: str, notion_version: str, page_id: str, file_upload_id: str = None,
-                                      file_name: str = None, file_mime_type: str = None,
-                                      content_text: str = None) -> Dict:
+async def append_block_to_notion_page(notion_key: str, notion_version: str, page_id: str, content_text: str = None, file_upload_id: str = None, file_name: str = None, file_mime_type: str = None):
     """
     向一个已存在的 Notion 页面追加一个文件/图片块或文本块。
     """
@@ -229,123 +229,7 @@ async def append_block_to_notion_page(notion_key: str, notion_version: str, page
         logging.error(f"An unexpected error occurred in append_block_to_notion_page: {e}", exc_info=True)
         raise
 
-
-# --- Global Media Group Cache ---
-media_group_cache: Dict[str, Dict] = {}
-MEDIA_GROUP_PROCESS_DELAY = 5  # 设定一个合理的延迟时间
-
-
 # --- Telegram Bot Handler Functions ---
-
-async def process_media_group_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Job Queue 回调函数，用于处理一个完成的媒体组。
-    """
-    job_data = context.job.data
-    media_group_id = job_data['media_group_id']
-    notion_config = job_data['notion_config']
-
-    if media_group_id not in media_group_cache:
-        logging.warning(
-            f"Media group {media_group_id} not found in cache during processing. May have been processed already.")
-        return
-
-    group_data = media_group_cache.pop(media_group_id)  # 取出并移除缓存
-    messages_in_group = group_data['messages']
-
-    if not messages_in_group:
-        logging.warning(f"Empty media group {media_group_id} received, nothing to process.")
-        return
-
-    logging.info(f"Processing media group {media_group_id} with {len(messages_in_group)} files.")
-
-    first_message = messages_in_group[0]['update'].message
-    beijing_tz = pytz.timezone('Asia/Shanghai')
-    now_beijing = datetime.datetime.now(beijing_tz)
-
-    caption_for_page = None
-    for msg_data in messages_in_group:
-        if msg_data['update'].message.caption:
-            caption_for_page = msg_data['update'].message.caption
-            break
-
-    if not caption_for_page:
-        caption_for_page = f"媒体组消息 {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}"
-
-    temp_files_to_clean = []
-    page_id = None
-
-    try:
-        notion_key = notion_config['NOTION_KEY']
-        notion_version = notion_config['NOTION_VERSION']
-        parent_page_id = notion_config['PAGE_ID']
-
-        logging.info(f"Creating Notion page for media group: {caption_for_page}")
-
-        initial_content_text = None
-        if first_message.caption and first_message.caption == caption_for_page:
-            initial_content_text = first_message.caption
-
-        page_id = await create_notion_page(
-            notion_key=notion_key,
-            notion_version=notion_version,
-            parent_page_id=parent_page_id,
-            title=caption_for_page,
-            content_text=initial_content_text
-        )
-        logging.info(f"Notion page created for media group with ID: {page_id}")
-        page_url = f"https://www.notion.so/{page_id.replace('-', '')}"
-
-        for msg_data in messages_in_group:
-            file_obj = msg_data['file_obj']
-            file_path = msg_data['temp_file_path']
-            file_name_for_notion = msg_data['file_name_for_notion']
-            content_type = msg_data['content_type']
-            msg_caption = msg_data['update'].message.caption
-
-            temp_files_to_clean.append(file_path)
-
-            logging.info(f"Uploading file {file_name_for_notion} from media group to Notion...")
-            file_upload_id, upload_url = await create_file_upload(notion_key, notion_version, file_name_for_notion,
-                                                                  content_type)
-            uploaded_file_id = await upload_file_to_notion(notion_key, notion_version, file_path, file_upload_id,
-                                                           upload_url, content_type)
-
-            await append_block_to_notion_page(
-                notion_key, notion_version, page_id,
-                file_upload_id=uploaded_file_id,
-                file_name=file_name_for_notion,
-                file_mime_type=content_type
-            )
-            logging.info(f"File {file_name_for_notion} appended to Notion page {page_id}.")
-
-            if msg_caption and (msg_caption != caption_for_page or not initial_content_text):
-                await append_block_to_notion_page(
-                    notion_key, notion_version, page_id,
-                    content_text=f"文件描述: {msg_caption}"
-                )
-
-        await first_message.reply_text(f"您的媒体组消息 ({len(messages_in_group)} 个文件) 已保存到Notion页面：{page_url}")
-
-    except Exception as e:
-        logging.exception("Error processing media group:")
-        if page_id:
-            await first_message.reply_text(f"处理媒体组时发生错误：{type(e).__name__}\n部分内容可能已保存到页面：{page_url}")
-        else:
-            await first_message.reply_text(f"处理媒体组时发生错误：{type(e).__name__}")
-    finally:
-        for f_path in temp_files_to_clean:
-            if os.path.exists(f_path):
-                logging.info(f"Cleaning up temporary file: {f_path}")
-                os.remove(f_path)
-            else:
-                logging.warning(f"Temporary file not found for cleanup: {f_path}")
-
-
-# 在文件顶部或其他合适的位置定义一个集合来存储已发送反馈的媒体组ID
-sent_media_group_feedback = set()
-
-
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE, notion_config: dict) -> None:
     """
     处理所有消息，包括识别媒体组、文本消息和单个文件消息。
@@ -354,92 +238,6 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if not message:
         logging.warning("Received an update without a message object.")
         return
-
-    media_group_id = message.media_group_id
-
-    if media_group_id:
-        logging.info(f"Received media group message with ID: {media_group_id}")
-
-        # 检查是否已发送即时反馈
-        if media_group_id not in sent_media_group_feedback:
-            # Send immediate feedback for media group
-            await message.reply_text("已收到您的媒体组消息，正在处理中...")
-            # 将当前媒体组ID添加到集合中
-            sent_media_group_feedback.add(media_group_id)
-
-        file_obj = None
-        file_extension = ''
-        content_type = ''
-        file_name_for_notion = ''
-        temp_file_path = None
-
-        try:
-            if message.photo:
-                file_obj = await message.photo[-1].get_file()
-                file_extension = 'jpg'
-                content_type = 'image/jpeg'
-                file_name_for_notion = f"telegram_photo_{file_obj.file_id}.jpg"
-            elif message.document:
-                file_name = message.document.file_name
-                file_obj = await message.document.get_file()
-                file_extension = file_name.split('.')[-1] if '.' in file_name else 'file'
-                content_type = message.document.mime_type or mimetypes.guess_type(file_name)[
-                    0] or 'application/octet-stream'
-                file_name_for_notion = file_name
-            elif message.video:
-                file_obj = await message.video.get_file()
-                file_extension = 'mp4'
-                content_type = message.video.mime_type or 'video/mp4'
-                file_name_for_notion = f"telegram_video_{file_obj.file_id}.mp4"
-            elif message.audio:
-                file_obj = await message.audio.get_file()
-                file_extension = message.audio.file_name.split('.')[
-                    -1] if message.audio.file_name and '.' in message.audio.file_name else 'mp3'
-                content_type = message.audio.mime_type or 'audio/mpeg'
-                file_name_for_notion = message.audio.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
-            elif message.voice:
-                file_obj = await message.voice.get_file()
-                file_extension = 'ogg'
-                content_type = message.voice.mime_type or 'audio/ogg'
-                file_name_for_notion = f"telegram_voice_{file_obj.file_id}.ogg"
-            else:
-                logging.warning(f"Unsupported file type in media group: {message}. Skipping.")
-                return
-
-            if file_obj:
-                temp_file_path = f"/tmp/{file_obj.file_id}.{file_extension}"
-                await file_obj.download_to_drive(temp_file_path)
-                logging.info(f"Downloaded part of media group: {file_obj.file_id}")
-
-                if media_group_id not in media_group_cache:
-                    media_group_cache[media_group_id] = {'messages': [], 'job': None}
-
-                media_group_cache[media_group_id]['messages'].append({
-                    'update': update,
-                    'file_obj': file_obj,
-                    'temp_file_path': temp_file_path,
-                    'file_name_for_notion': file_name_for_notion,
-                    'content_type': content_type
-                })
-
-                current_job_info = media_group_cache[media_group_id].get('job')
-                if current_job_info and current_job_info.get('job'):
-                    current_job = current_job_info['job']
-                    current_job.enabled = False
-                    logging.debug(f"Disabled old job for media group {media_group_id}")
-
-                new_job = context.job_queue.run_once(
-                    process_media_group_job,
-                    MEDIA_GROUP_PROCESS_DELAY,
-                    data={'media_group_id': media_group_id, 'notion_config': notion_config},
-                    name=f"process_media_group_{media_group_id}"
-                )
-                media_group_cache[media_group_id]['job'] = {'job': new_job}
-                logging.info(
-                    f"File from media group {media_group_id} cached. Scheduled processing in {MEDIA_GROUP_PROCESS_DELAY} seconds.")
-
-        except Exception as e:
-            logging.exception(f"Error handling media group file: {e}")
 
     elif message.text:
         logging.info("Received standalone text message.")
@@ -476,6 +274,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
         file_name_for_notion = ''
         beijing_tz = pytz.timezone('Asia/Shanghai')
         now_beijing = datetime.datetime.now(beijing_tz)
+        # 使用消息的caption作为页面标题，如果没有caption则使用默认标题
         caption = message.caption or f"Telegram文件 {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}"
         temp_file_path = None
 
@@ -522,6 +321,17 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 notion_version = notion_config['NOTION_VERSION']
                 parent_page_id = notion_config['PAGE_ID']
 
+                # 为每个文件创建一个新的Notion页面
+                logging.info(f"Creating Notion page for standalone file: {caption}")
+                page_id = await create_notion_page(
+                    notion_key=notion_key,
+                    notion_version=notion_version,
+                    parent_page_id=parent_page_id,
+                    title=caption, # 使用caption作为页面标题
+                    content_text=message.caption # 将caption作为页面内容的第一段文本
+                )
+                logging.info(f"Notion page created for standalone file with ID: {page_id}")
+
                 logging.info(f"Creating file upload object in Notion for {file_name_for_notion}")
                 file_upload_id, upload_url = await create_file_upload(notion_key, notion_version, file_name_for_notion,
                                                                       content_type)
@@ -531,22 +341,13 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                                                content_type)
                 logging.info(f"File uploaded to Notion with ID: {uploaded_file_id}")
 
-                logging.info(f"Creating Notion page for standalone file: {caption}")
-                page_id = await create_notion_page(
-                    notion_key=notion_key,
-                    notion_version=notion_version,
-                    parent_page_id=parent_page_id,
-                    title=caption,
-                    content_text=message.caption
-                )
-
                 await append_block_to_notion_page(
                     notion_key, notion_version, page_id,
                     file_upload_id=uploaded_file_id,
                     file_name=file_name_for_notion,
                     file_mime_type=content_type
                 )
-                logging.info("Notion page for standalone file created successfully.")
+                logging.info("File block appended to Notion page successfully.")
                 page_url = f"https://www.notion.so/{page_id.replace('-', '')}"
                 await message.reply_text(f"您上传的{file_name_for_notion} 已保存到Notion页面：{page_url}")
 
@@ -597,3 +398,109 @@ async def download_file_from_url(file_url: str, temp_dir: str = "/tmp") -> str:
     except Exception as e:
         logging.error(f"An unexpected error occurred during file download from URL {file_url}: {e}", exc_info=True)
         raise
+
+
+async def save_upload_file_temporarily(file: UploadFile, temp_dir: str = "/tmp") -> tuple[str, str, str]:
+    """
+    Saves an uploaded file temporarily to disk.
+
+    :param file: The UploadFile object from FastAPI.
+    :param temp_dir: The directory to save the temporary file.
+    :return: A tuple containing the temporary file path, file name, and content type.
+    :raises Exception: If saving the file fails.
+    """
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    file_name = file.filename
+    if not file_name:
+        # Handle cases where filename might be missing, generate a unique one
+        file_name = f"uploaded_file_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    file_path = os.path.join(temp_dir, file_name)
+    content_type = file.content_type or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
+
+    try:
+        # Use async file writing if possible, but shutil.copyfileobj is simpler for now
+        # For large files, consider a truly async approach
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        logging.info(f"Temporary file saved at {file_path}")
+        return file_path, file_name, content_type
+    except Exception as e:
+        logging.error(f"Error saving uploaded file {file_name} temporarily: {e}", exc_info=True)
+        # Attempt to clean up partial file if save failed
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            logging.info(f"Cleaned up partial temporary file {file_path} after error.")
+        raise # Re-raise the exception
+
+async def upload_as_block(
+    title: str,
+    notion_config: dict,
+    content: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    content_type: Optional[str] = None
+) -> str:
+
+    notion_key = notion_config['NOTION_KEY']
+    notion_version = notion_config['NOTION_VERSION']
+    parent_page_id = notion_config['PAGE_ID'] # Assuming this is the parent page ID
+
+    # Create the Notion page first
+    logging.info(f"Creating Notion page with title: {title}")
+    page_id = await create_notion_page(
+        notion_key=notion_key,
+        notion_version=notion_version,
+        parent_page_id=parent_page_id,
+        title=title,
+        # Do not add content here initially, append it later if needed
+        content_text=None
+    )
+    logging.info(f"Notion page created with ID: {page_id}")
+
+    if file_path:
+        # Handle file upload
+        if not os.path.exists(file_path):
+            logging.error(f"File not found at {file_path}")
+            # Attempt to append content if file not found but content exists
+            if content:
+                 await append_block_to_notion_page(
+                    notion_key, notion_version, page_id,
+                    content_text=content
+                )
+                 logging.info(f"Appended content to page {page_id} after file not found.")
+                 return page_id # Return page ID even if file upload failed but content was appended
+            else:
+                raise FileNotFoundError(f"File not found at {file_path}")
+
+        effective_file_name = file_name or os.path.basename(file_path) or title
+        effective_content_type = content_type or mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+
+        logging.info(f"Uploading file {effective_file_name} to Notion...")
+        file_upload_id, upload_url = await create_file_upload(notion_key, notion_version, effective_file_name, effective_content_type)
+        uploaded_file_id = await upload_file_to_notion(notion_key, notion_version, file_path, file_upload_id, upload_url, effective_content_type)
+
+        # Append the file block
+        await append_block_to_notion_page(
+            notion_key, notion_version, page_id,
+            file_upload_id=uploaded_file_id,
+            file_name=effective_file_name,
+            file_mime_type=effective_content_type
+        )
+        logging.info(f"File block appended to page {page_id}.")
+
+    # Always append content if it exists, regardless of file upload status
+    if content:
+        logging.info(f"Appending content to page {page_id}...")
+        await append_block_to_notion_page(
+            notion_key, notion_version, page_id,
+            content_text=content
+        )
+        logging.info(f"Content block appended to page {page_id}.")
+
+    if not file_path and not content:
+         logging.warning(f"No file_path or content provided for upload_as_block for title: {title}. Page {page_id} created but empty.")
+
+    return page_id

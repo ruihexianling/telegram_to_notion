@@ -1,162 +1,147 @@
-import os
 import logging
-from functools import partial
+import shutil
+import tempfile
+from typing import Optional
 
-from flask import Flask, jsonify, request
-from telegram import BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from werkzeug.middleware.proxy_fix import ProxyFix
+import uvicorn
+
+from fastapi import FastAPI, Request, status, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from telegram import Update
 
 from config import *
+from notion_bot_utils import upload_as_block, save_upload_file_temporarily
+from bot_setup import setup_bot
 
-# 配置日志记录
-from notion_bot_utils import handle_any_message
+# === 配置日志 ===
+logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
+logging.getLogger('telegram').setLevel(logging.DEBUG)
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+# === 配置 Notion 参数 ===
+NOTION_CONFIG = {
+    'NOTION_KEY': NOTION_KEY,
+    'NOTION_VERSION': NOTION_VERSION,
+    'PAGE_ID': PAGE_ID
+}
 
-app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)  # 处理X-Forwarded-For
+# === 初始化 FastAPI app ===
+app = FastAPI()
 
-def load_and_validate_config():
-    """加载并验证必要的配置。"""
-    if not TELEGRAM_BOT_TOKEN:
-        logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
-        exit(1)
+# === 允许跨域（根据需要配置） ===
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    notion_config = {
-        'NOTION_KEY': NOTION_KEY,
-        'NOTION_VERSION': NOTION_VERSION,
-        'PAGE_ID': PAGE_ID
-    }
+application = setup_bot(TELEGRAM_BOT_TOKEN)
 
-    # 检查 Notion 配置
-    if not notion_config.get('NOTION_KEY') or not notion_config.get('PAGE_ID'):
-        logging.error("Notion configuration (NOTION_KEY or NOTION_PAGE_ID) not found in environment variables.")
-        exit(1)
+# === 设置 Webhook ===
+async def set_webhook():
+    webhook_url = f"{RENDER_WEBHOOK_URL.rstrip('/')}/{WEBHOOK_PATH}"
+    await application.bot.set_webhook(webhook_url)
+    logging.info(f"Webhook URL 设置为: {webhook_url}")
 
-    return notion_config
+# === API 路由 ===
+@app.get("/")
+async def root():
+    return PlainTextResponse("Hello, World!")
 
+@app.get("/healthz")
+async def healthz(request: Request):
+    logging.info(f"Received Health check: {request.client.host} {request.method} {request.url.path}")
+    return JSONResponse({"status": "ok"})
 
-def setup_application(notion_config):
-    """设置 Telegram 应用并添加处理器。"""
-    logging.info("Application starting...")
-    # 创建 Application 并传入你的 bot token。
-    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # 添加处理器
-    logging.info("Adding command and message handlers...")
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-
-    bound_handle_any_message = partial(handle_any_message, notion_config=notion_config)
-
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, bound_handle_any_message))
-    logging.info("Handlers added.")
-
-    application.post_init = post_init
-
-    return application
-
-
-def start(update, context):
-    """处理 /start 命令"""
-    update.message.reply_text('Welcome to the bot!')
-
-def help_command(update, context):
-    """处理 /help 命令"""
-    update.message.reply_text('Here is how you can use the bot...')
-
-async def set_webhook(application):
-    """设置 Telegram 机器人的 Webhook URL。"""
-    webhook_url = os.getenv('WEBHOOK_URL')
-    if webhook_url:
-        try:
-            await application.bot.set_webhook(webhook_url)
-            logging.info(f"Webhook URL 设置为: {webhook_url}")
-        except Exception as e:
-            logging.error(f"设置 Webhook URL 时发生错误: {e}")
-    else:
-        logging.warning("WEBHOOK_URL 环境变量未设置。")
-
-
-async def post_init(app: Application):
-    """设置命令列表和 Webhook (新增或修改)"""
-    # 设置命令列表
-    await app.bot.set_my_commands([
-        BotCommand("start", "Start the bot"),
-        BotCommand("help", "Show help message"),
-    ])
-    logging.info("Telegram commands set.")
-
-    # 设置 Webhook (仅在 Webhook 模式下)
-    if USE_WEBHOOK and WEBHOOK_URL:
-        try:
-            await app.bot.set_webhook(url=WEBHOOK_URL)
-            logging.info(f"Webhook set to {WEBHOOK_URL}")
-        except Exception as e:
-            logging.error(f"Failed to set webhook: {e}")
-
-
-@app.route('/')
-def index():
-    """根路由，用于健康检查"""
-    logging.info(f"收到根路由请求: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-    return 'Hello, World!'
-
-@app.route('/healthz', methods=['GET'])
-def health():
-    # 打印请求信息
-    logging.info(f"收到健康检查请求: {request.remote_addr} {request.method} {request.path} {request.user_agent}")
-
-    return jsonify({
-        "status": "ok"
-    }), 200
-
-@app.route('/save2notion', methods=['POST'])
-async def save_to_notion_webhook():
-    update = request.get_json()
-    if update:
-        logging.debug(f"Received webhook update: {update}")
-        application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()  # 替换为你的实际 token
-        await application.process_update(update)
-    return 'ok'
-
-
-def run_long_polling(app):
-    logging.info("Starting bot in long polling mode...")
-    logging.info("Bot started in long polling mode. Press Ctrl-C to stop.")
-    # 运行 bot 直到用户按下 Ctrl-C
-    app.run_polling(poll_interval=3)
-
-
-def run_webhook(flask_app, webhook_url, port):
-    if not webhook_url:
-        logging.error("WEBHOOK_URL not found in environment variables. Webhook mode requires WEBHOOK_URL.")
-        exit(1)
-
-    logging.info(f"Starting Flask app for webhook on port {port}...")
-    # 在生产环境中使用 Gunicorn 或 uWSGI
-    flask_app.run(host='0.0.0.0', port=port)
-
-
-def main():
-    """运行 Telegram bot 应用的主函数。"""
+@app.post(f"/{WEBHOOK_PATH}")
+async def telegram_webhook(request: Request):
     try:
-        notion_config = load_and_validate_config()
-        application = setup_application(notion_config)
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
+        await application.process_update(update)
+        return JSONResponse(status_code=status.HTTP_200_OK, content={"status": "processed"})
+    except Exception as e:
+        logging.error(f"Webhook error: {e}")
+        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": str(e)})
 
-        if USE_WEBHOOK:
-            logging.info("USE_WEBHOOK is true. Running in webhook mode.")
-            run_webhook(application, WEBHOOK_URL, PORT)
-        else:
-            logging.info("USE_WEBHOOK is false or not set. Running in long polling mode.")
-            run_long_polling(application)
+@app.get("/webhook_status")
+async def webhook_status():
+    
+    info = await application.bot.get_webhook_info()
+    return JSONResponse({
+        "webhook_url": info.url,
+        "pending_updates_count": info.pending_update_count,
+        "last_error_date": info.last_error_date,
+        "last_error_message": info.last_error_message,
+        "max_connections": info.max_connections,
+        "allowed_updates": info.allowed_updates
+    })
+
+# === Notion 上传 API ===
+class UploadPayload(BaseModel):
+    title: str
+    content: Optional[str] = None
+    file: Optional[UploadFile] = File(None)
+
+@app.post("/api/upload_as_block")
+async def api_upload(
+    title: str = Form(...),
+    content: Optional[str] = Form(None),
+    file: Optional[UploadFile] = Form(None)
+):
+    logging.info(f"Received API upload request: title='{title}', content_provided={content is not None}, file_provided={file is not None}")
+
+    if not content and not file:
+        logging.warning("API upload request failed: Neither content nor file provided.")
+        raise HTTPException(status_code=400, detail="Either 'content' or 'file' must be provided")
+
+    temp_dir = None
+    file_path = None
+    file_name = None
+    content_type = None
+
+    try:
+        if file:
+            # Use the new helper function to save the file temporarily
+            temp_dir = tempfile.mkdtemp()
+            file_path, file_name, content_type = await save_upload_file_temporarily(file, temp_dir=temp_dir)
+            logging.info(f"File saved temporarily: {file_path}")
+
+        # Call the unified upload_as_block function
+        await upload_as_block(
+            title=title,
+            content=content, # Pass content even if file is present, upload_as_block handles it
+            file_path=file_path,
+            file_name=file_name,
+            content_type=content_type
+        )
+
+        logging.info("API upload successful.")
+        return JSONResponse(status_code=200, content={"message": "Content/File uploaded successfully"})
 
     except Exception as e:
-        logging.critical(f"Application failed to start: {e}", exc_info=True)
+        logging.error(f"API upload failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload content/file: {e}")
+    finally:
+        # Clean up the temporary directory and its contents if it was created
+        if temp_dir and os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                logging.info(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as cleanup_e:
+                logging.error(f"Error cleaning up temporary directory {temp_dir}: {cleanup_e}", exc_info=True)
 
-    logging.info("Application finished.")
+@app.on_event("startup")
+async def startup_event():
+    await application.initialize()
 
+    if USE_WEBHOOK:
+        await set_webhook()
+        logging.info("✅ Webhook mode enabled.")
 
-if __name__ == '__main__':
-    main()
+        
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=False, forwarded_allow_ips="*")
