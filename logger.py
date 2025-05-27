@@ -2,6 +2,7 @@
 import logging
 import sys
 from typing import Optional
+from config import DEBUG
 
 def setup_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     """设置日志记录器
@@ -18,7 +19,7 @@ def setup_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     
     # 设置日志级别
     if level is None:
-        level = logging.DEBUG
+        level = logging.DEBUG if DEBUG else logging.INFO
     logger.setLevel(level)
     
     # 如果已经有处理器，不重复添加

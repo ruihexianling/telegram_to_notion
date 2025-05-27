@@ -24,3 +24,5 @@ AUTHORIZED_USERS = list(map(int, AUTHORIZED_USERS_STR.split(","))) if AUTHORIZED
 
 # 接口密钥，可设定为任意字符串
 API_SECRET = os.getenv('API_SECRET')
+
+DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
