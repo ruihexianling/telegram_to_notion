@@ -99,7 +99,7 @@ async def startup_event():
         application = setup_bot()
         
         # 设置 webhook
-        webhook_url = f"https://{WEBHOOK_URL}/{WEBHOOK_PATH}"
+        webhook_url = f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
         logger.info(f"Setting webhook URL: {webhook_url}")
         
         # 初始化机器人

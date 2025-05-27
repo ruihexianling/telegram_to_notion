@@ -15,7 +15,7 @@ logger = setup_logger(__name__)
 # 创建路由
 router = APIRouter()
 
-@router.post("/webhook")
+# @router.post("/webhook")
 async def handle_webhook(request: Request):
     """处理 Notion webhook 请求"""
     try:
