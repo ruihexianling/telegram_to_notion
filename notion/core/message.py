@@ -26,6 +26,12 @@ class Message:
     @classmethod
     async def from_telegram_message(cls, message: Any, bot: Optional[Bot] = None) -> 'Message':
         """从 Telegram 消息创建消息对象"""
+        logger.debug(
+            f"Creating message from Telegram message - message_id: {message.message_id} - "
+            f"has_text: {bool(message.text)} - has_caption: {bool(message.caption)} - "
+            f"has_media: {bool(message.document or message.photo or message.video or message.audio or message.voice)}"
+        )
+        
         beijing_tz = pytz.timezone('Asia/Shanghai')
         now_beijing = datetime.now(beijing_tz)
         
@@ -43,22 +49,41 @@ class Message:
             file = message.document
             msg.file_name = file.file_name
             msg.content_type = file.mime_type
+            logger.debug(
+                f"Processing document message - message_id: {message.message_id} - "
+                f"content_type: {file.mime_type}"
+            )
         elif message.photo:
             file = message.photo[-1]  # 获取最大尺寸的照片
             msg.file_name = f"photo_{message.message_id}.jpg"
             msg.content_type = "image/jpeg"
+            logger.debug(
+                f"Processing photo message - message_id: {message.message_id} - "
+                f"photo_count: {len(message.photo)}"
+            )
         elif message.video:
             file = message.video
             msg.file_name = file.file_name or f"video_{message.message_id}.mp4"
             msg.content_type = file.mime_type or "video/mp4"
+            logger.debug(
+                f"Processing video message - message_id: {message.message_id} - "
+                f"content_type: {msg.content_type}"
+            )
         elif message.audio:
             file = message.audio
             msg.file_name = file.file_name or f"audio_{message.message_id}.mp3"
             msg.content_type = file.mime_type or "audio/mpeg"
+            logger.debug(
+                f"Processing audio message - message_id: {message.message_id} - "
+                f"content_type: {msg.content_type}"
+            )
         elif message.voice:
             file = message.voice
             msg.file_name = f"voice_{message.message_id}.ogg"
             msg.content_type = "audio/ogg"
+            logger.debug(
+                f"Processing voice message - message_id: {message.message_id}"
+            )
         else:
             return msg
 
@@ -67,13 +92,25 @@ class Message:
             temp_dir = tempfile.mkdtemp()
             file_path = os.path.join(temp_dir, msg.file_name)
             try:
+                logger.debug(
+                    f"Downloading file from Telegram - message_id: {message.message_id} - "
+                    f"content_type: {msg.content_type}"
+                )
                 # 获取文件对象
                 file_obj = await bot.get_file(file.file_id)
                 # 下载文件
                 await file_obj.download_to_drive(file_path)
                 msg.file_path = file_path
+                logger.debug(
+                    f"File downloaded successfully - message_id: {message.message_id} - "
+                    f"content_type: {msg.content_type}"
+                )
             except Exception as e:
-                logger.error(f"Error downloading file: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to download file from Telegram - message_id: {message.message_id} - "
+                    f"error_type: {type(e).__name__} - content_type: {msg.content_type}",
+                    exc_info=True
+                )
                 if os.path.exists(file_path):
                     os.remove(file_path)
                 raise
@@ -89,6 +126,10 @@ class Message:
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
+        logger.debug(
+            f"Converting message to dictionary - message_id: {self.message_id} - "
+            f"has_content: {bool(self.content)} - has_file: {bool(self.file_path)}"
+        )
         return {
             'content': self.content,
             'file_path': self.file_path,
@@ -103,6 +144,10 @@ class Message:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Message':
         """从字典创建消息对象"""
+        logger.debug(
+            f"Creating message from dictionary - message_id: {data.get('message_id')} - "
+            f"has_content: {bool(data.get('content'))} - has_file: {bool(data.get('file_path'))}"
+        )
         if data.get('timestamp'):
             data['timestamp'] = datetime.fromisoformat(data['timestamp'])
         return cls(**data) 

@@ -55,6 +55,12 @@ class NotionClient:
             if content_type:
                 headers["Content-Type"] = content_type
 
+        logger.debug(
+            f"Making Notion API request - method: {method} - "
+            f"endpoint: {url.split('/')[-1]} - "
+            f"has_payload: {bool(payload)} - has_data: {bool(data)}"
+        )
+
         try:
             if method == 'POST':
                 async with self._session.post(url, json=payload, headers=headers, data=data) as response:
@@ -68,10 +74,18 @@ class NotionClient:
             else:
                 raise ValueError(f"不支持的 HTTP 方法: {method}")
         except aiohttp.ClientError as e:
-            logger.error(f"Notion API 请求失败 {url}: {e}", exc_info=True)
+            logger.error(
+                f"Notion API request failed - method: {method} - "
+                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__}",
+                exc_info=True
+            )
             raise NotionAPIError(f"Notion API 请求失败: {str(e)}")
         except Exception as e:
-            logger.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error in Notion API request - method: {method} - "
+                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__}",
+                exc_info=True
+            )
             raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
 
     async def _handle_response(self, response: aiohttp.ClientResponse, url: str) -> Dict[str, Any]:
@@ -81,6 +95,11 @@ class NotionClient:
             return await response.json()
         except aiohttp.ClientResponseError as e:
             response_body = await response.text()
+            logger.error(
+                f"Notion API response error - status_code: {e.status} - "
+                f"endpoint: {url.split('/')[-1]} - "
+                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'}"
+            )
             if 'file_uploads' in url:
                 raise NotionFileUploadError(
                     f"Notion 文件上传失败: {e.message}",
@@ -96,6 +115,11 @@ class NotionClient:
 
     async def create_page(self, title: str, content_text: Optional[str] = None) -> str:
         """创建 Notion 页面"""
+        logger.debug(
+            f"Creating Notion page - has_content: {bool(content_text)} - "
+            f"title_length: {len(title)}"
+        )
+        
         url = "https://api.notion.com/v1/pages"
         payload = {
             "parent": {
@@ -133,10 +157,16 @@ class NotionClient:
             })
 
         response = await self._make_request(url, method='POST', payload=payload)
+        logger.info(f"Notion page created successfully - page_id: {response['id'][:8]}...")
         return response['id']
 
     async def append_text(self, page_id: str, content_text: str) -> None:
         """添加文本块到页面"""
+        logger.debug(
+            f"Appending text to Notion page - page_id: {page_id[:8]}... - "
+            f"content_length: {len(content_text)}"
+        )
+        
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         payload = {
             "children": [
@@ -157,6 +187,7 @@ class NotionClient:
             ]
         }
         await self._make_request(url, method='PATCH', payload=payload)
+        logger.debug(f"Text appended successfully - page_id: {page_id[:8]}...")
 
     async def create_file_upload(
         self,
@@ -165,6 +196,11 @@ class NotionClient:
         file_size: Optional[int] = None
     ) -> Tuple[str, str, Optional[int], Optional[str]]:
         """创建文件上传对象"""
+        logger.debug(
+            f"Creating file upload object - content_type: {content_type} - "
+            f"file_size_mb: {round(file_size / (1024 * 1024), 2) if file_size else None}"
+        )
+        
         url = "https://api.notion.com/v1/file_uploads"
         
         mode = "single_part"
@@ -181,8 +217,16 @@ class NotionClient:
                 "filename": file_name,
                 "content_type": content_type
             }
+            logger.debug(
+                f"Using multi-part upload mode - number_of_parts: {number_of_parts} - "
+                f"part_size_mb: {round(part_size / (1024 * 1024), 2)}"
+            )
         
         response = await self._make_request(url, method='POST', payload=payload)
+        logger.info(
+            f"File upload object created - upload_id: {response['id'][:8]}... - "
+            f"mode: {mode} - number_of_parts: {number_of_parts}"
+        )
         return response['id'], response['upload_url'], number_of_parts, mode
 
     async def upload_file_part(
@@ -195,6 +239,11 @@ class NotionClient:
         end_byte: int
     ) -> None:
         """上传文件的一部分"""
+        logger.debug(
+            f"Uploading file part - part_number: {part_number} - "
+            f"content_type: {content_type} - part_size: {end_byte - start_byte}"
+        )
+        
         with open(file_path, "rb") as f:
             f.seek(start_byte)
             part_data = f.read(end_byte - start_byte)
@@ -204,11 +253,20 @@ class NotionClient:
             data.add_field('part_number', str(part_number))
             
             await self._make_request(upload_url, method='POST', data=data)
+        
+        logger.debug(
+            f"File part uploaded successfully - part_number: {part_number} - "
+            f"content_type: {content_type}"
+        )
 
     async def complete_multi_part_upload(self, file_upload_id: str) -> None:
         """完成多部分文件上传"""
+        logger.debug(f"Completing multi-part upload - upload_id: {file_upload_id[:8]}...")
+        
         url = f"https://api.notion.com/v1/file_uploads/{file_upload_id}/complete"
         await self._make_request(url, method='POST')
+        
+        logger.info(f"Multi-part upload completed - upload_id: {file_upload_id[:8]}...")
 
     async def append_file_block(
         self,
@@ -218,6 +276,11 @@ class NotionClient:
         file_mime_type: str
     ) -> None:
         """添加文件块到页面"""
+        logger.debug(
+            f"Appending file block to page - page_id: {page_id[:8]}... - "
+            f"upload_id: {file_upload_id[:8]}... - mime_type: {file_mime_type}"
+        )
+        
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         
         block_type = "file"
@@ -254,4 +317,8 @@ class NotionClient:
             ]
         }
         
-        await self._make_request(url, method='PATCH', payload=payload) 
+        await self._make_request(url, method='PATCH', payload=payload)
+        logger.info(
+            f"File block appended successfully - page_id: {page_id[:8]}... - "
+            f"block_type: {block_type} - mime_type: {file_mime_type}"
+        ) 

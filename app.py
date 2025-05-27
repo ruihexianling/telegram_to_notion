@@ -44,12 +44,16 @@ async def root():
 async def startup_event():
     """应用启动时的事件处理"""
     try:
+        logger.info("Starting application")
         # 设置机器人
         application = setup_bot()
         
         # 启动机器人
+        logger.debug("Initializing bot application")
         await application.initialize()
+        logger.debug("Starting bot application")
         await application.start()
+        logger.debug("Starting bot polling")
         await application.updater.start_polling()
         
         logger.info("Bot started successfully")
@@ -62,9 +66,12 @@ async def startup_event():
 async def shutdown_event():
     """应用关闭时的事件处理"""
     try:
+        logger.info("Shutting down application")
         # 停止机器人
         application = Application.get_current()
+        logger.debug("Stopping bot application")
         await application.stop()
+        logger.debug("Shutting down bot application")
         await application.shutdown()
         
         logger.info("Bot stopped successfully")
@@ -74,6 +81,7 @@ async def shutdown_event():
         raise
 
 if __name__ == "__main__":
+    logger.info(f"Starting server on port {PORT}")
     uvicorn.run(
         "app:app",
         host="0.0.0.0",

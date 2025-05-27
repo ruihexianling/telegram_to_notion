@@ -47,7 +47,7 @@ class MessageBuffer:
                     buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
                     return f"https://www.notion.so/{page_id.replace('-', '')}"
                 except Exception as e:
-                    logger.error(f"Error creating page or processing first message: {e}", exc_info=True)
+                    logger.error(f"Error creating page or processing first message - user_id: {user_id} - error: {e}", exc_info=True)
                     buffer['has_error'] = True
                     raise
 
@@ -72,7 +72,7 @@ class MessageBuffer:
                     await uploader.upload_message(notion_message, append_only=True)
                 buffer['has_error'] = False
             except Exception as e:
-                logger.error(f"Error processing message: {e}", exc_info=True)
+                logger.error(f"Error processing message - user_id: {user_id} - message_id: {message.message_id} - error: {e}", exc_info=True)
                 buffer['has_error'] = True
                 raise
 
@@ -102,7 +102,7 @@ class MessageBuffer:
                             f"所有消息已处理完成{error_msg}，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}"
                         )
                     except Exception as e:
-                        logger.error(f"Error sending completion message: {e}", exc_info=True)
+                        logger.error(f"Error sending completion message - user_id: {user_id} - error: {e}", exc_info=True)
                 
                 # 清理缓冲区
                 del self.buffers[user_id]
@@ -110,7 +110,7 @@ class MessageBuffer:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(f"Error in buffer processing: {e}", exc_info=True)
+            logger.error(f"Error in buffer processing - user_id: {user_id} - error: {e}", exc_info=True)
             async with self.lock:
                 if user_id in self.buffers:
                     del self.buffers[user_id] 

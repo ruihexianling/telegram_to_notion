@@ -43,6 +43,7 @@ class CustomFormatter(logging.Formatter):
     def format(self, record):
         log_message = super().format(record)
         
+        # 只保留基本的用户信息
         username = getattr(record, 'username', None)
         user_id = getattr(record, 'user_id', None)
         text_content = getattr(record, 'text_content', None)

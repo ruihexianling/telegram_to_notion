@@ -7,14 +7,16 @@ from logger import setup_logger
 # 配置日志
 logger = setup_logger(__name__)
 
-
+logger.info("Application started.")
 
 if __name__ == "__main__":
     # Get bot token from environment variables
     bot_token = TELEGRAM_BOT_TOKEN
     if not bot_token:
-        logger.error("BOT_TOKEN environment variable not set.")
+        logger.critical("TELEGRAM_BOT_TOKEN environment variable not set. Please set it to run the bot.")
+        exit(1) # Exit if token is not set
     else:
+        logger.debug("TELEGRAM_BOT_TOKEN is set.")
         # Build the application
         application = setup_bot()
 
@@ -25,4 +27,6 @@ if __name__ == "__main__":
         application.run_polling(poll_interval=2.0)
         
         # Stop the bot
+        logger.info("Bot is shutting down.")
         application.shutdown()
+        logger.info("Application shut down successfully.")

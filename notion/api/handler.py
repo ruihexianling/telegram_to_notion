@@ -26,6 +26,10 @@ async def upload_as_page(
     file: Optional[UploadFile] = Form(None)
 ):
     """上传内容作为新页面"""
+    logger.debug(
+        f"Received upload_as_page request - title_length: {len(title)} - "
+        f"has_content: {content is not None} - has_file: {file is not None}"
+    )
     return await api_upload(request, title, content, file, append_only=False)
 
 @router.post("/upload_as_block")
@@ -36,6 +40,10 @@ async def upload_as_block(
     file: Optional[UploadFile] = Form(None)
 ):
     """上传内容作为块"""
+    logger.debug(
+        f"Received upload_as_block request - title_length: {len(title)} - "
+        f"has_content: {content is not None} - has_file: {file is not None}"
+    )
     return await api_upload(request, title, content, file, append_only=True)
 
 async def api_upload(
@@ -49,21 +57,23 @@ async def api_upload(
     # 验证签名
     signature = request.headers.get('X-Signature')
     if not verify_signature(signature, request):
-        logger.warning(f"Invalid signature: {signature}")
+        logger.warning(
+            f"Invalid API signature - signature_length: {len(signature) if signature else 0} - "
+            f"client_ip: {request.client.host}"
+        )
         raise HTTPException(status_code=401, detail="Invalid signature")
 
     logger.info(
-        "Received API upload request",
-        extra={
-            'title': title,
-            'has_content': content is not None,
-            'has_file': file is not None,
-            'append_only': append_only
-        }
+        f"Processing API upload request - title_length: {len(title)} - "
+        f"has_content: {content is not None} - has_file: {file is not None} - "
+        f"append_only: {append_only} - client_ip: {request.client.host}"
     )
 
     if not content and not file:
-        logger.warning("API upload request failed: Neither content nor file provided")
+        logger.warning(
+            f"Invalid API upload request: missing content and file - "
+            f"client_ip: {request.client.host}"
+        )
         raise HTTPException(status_code=400, detail="Either 'content' or 'file' must be provided")
 
     temp_dir = None
@@ -73,11 +83,19 @@ async def api_upload(
 
         # 处理文件上传
         if file:
+            logger.debug(
+                f"Processing file upload - filename: {file.filename} - "
+                f"content_type: {file.content_type} - client_ip: {request.client.host}"
+            )
             temp_dir = tempfile.mkdtemp()
             file_path, file_name, content_type = await save_upload_file_temporarily(file, temp_dir=temp_dir)
             message.file_path = file_path
             message.file_name = file_name
             message.content_type = content_type
+            logger.debug(
+                f"File saved temporarily - content_type: {content_type} - "
+                f"client_ip: {request.client.host}"
+            )
 
         # 创建 Notion 客户端和上传器
         config = NotionConfig({
@@ -92,7 +110,10 @@ async def api_upload(
             # 上传消息
             page_id = await uploader.upload_message(message, append_only=append_only)
             
-            logger.info("API upload successful")
+            logger.info(
+                f"API upload completed successfully - page_id: {page_id[:8]}... - "
+                f"append_only: {append_only} - client_ip: {request.client.host}"
+            )
             return JSONResponse(
                 status_code=200,
                 content={
@@ -102,9 +123,16 @@ async def api_upload(
             )
 
     except Exception as e:
-        logger.exception("API upload failed")
+        logger.error(
+            f"API upload failed - error_type: {type(e).__name__} - "
+            f"client_ip: {request.client.host}",
+            exc_info=True
+        )
         raise HTTPException(status_code=500, detail=f"Failed to upload content/file: {e}")
     finally:
         # 清理临时目录
         if temp_dir:
+            logger.debug(
+                f"Cleaning up temporary directory - client_ip: {request.client.host}"
+            )
             cleanup_temp_dir(temp_dir) 

@@ -46,7 +46,7 @@ async def handle_webhook(request: Request):
         return JSONResponse({"status": "success"})
         
     except Exception as e:
-        logger.exception("Error handling webhook")
+        logger.exception(f"Error handling webhook - error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def handle_page_update(data: dict):
@@ -67,16 +67,13 @@ async def handle_page_update(data: dict):
         async with NotionClient(config) as client:
             # 获取页面内容
             page = await client.get_page(page_id)
+            title = page.get('properties', {}).get('title', [{}])[0].get('text', {}).get('content', '')
             logger.info(
-                "Page updated",
-                extra={
-                    'page_id': page_id,
-                    'title': page.get('properties', {}).get('title', [{}])[0].get('text', {}).get('content', '')
-                }
+                f"Page updated - page_id: {page_id} - title: {title}"
             )
             
     except Exception as e:
-        logger.exception("Error handling page update")
+        logger.exception(f"Error handling page update - page_id: {data.get('page_id')} - error: {e}")
         raise
 
 async def handle_page_created(data: dict):
@@ -97,14 +94,11 @@ async def handle_page_created(data: dict):
         async with NotionClient(config) as client:
             # 获取页面内容
             page = await client.get_page(page_id)
+            title = page.get('properties', {}).get('title', [{}])[0].get('text', {}).get('content', '')
             logger.info(
-                "Page created",
-                extra={
-                    'page_id': page_id,
-                    'title': page.get('properties', {}).get('title', [{}])[0].get('text', {}).get('content', '')
-                }
+                f"Page created - page_id: {page_id} - title: {title}"
             )
             
     except Exception as e:
-        logger.exception("Error handling page creation")
+        logger.exception(f"Error handling page creation - page_id: {data.get('page_id')} - error: {e}")
         raise

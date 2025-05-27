@@ -34,41 +34,30 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     logger.info(
-        "Received a message",
-        extra={
-            'username': update.effective_user.username,
-            'user_id': update.effective_user.id,
-            'text_content': message.text
-        }
+        f"Received a message - username: {update.effective_user.username} - "
+        f"user_id: {update.effective_user.id}"
     )
 
     if not is_user_authorized(update.effective_user.id):
         await message.reply_text("您没有权限使用此功能")
         logger.warning(
-            "Unauthorized user attempted to use the bot",
-            extra={
-                'username': update.effective_user.username,
-                'user_id': update.effective_user.id,
-                'text_content': message.text
-            }
+            f"Unauthorized user attempted to use the bot - username: {update.effective_user.username} - "
+            f"user_id: {update.effective_user.id} - text_content: {message.text}"
         )
         return
 
-
     try:
-        # 创建 Notion 客户端和上传器
-        # config = NotionConfig(notion_config)  # 使用传入的配置
         logger.debug(
-            "Notion client and uploader created",
-            extra={
-                'username': update.effective_user.username,
-                'user_id': update.effective_user.id,
-                'text_content': message.text
-            }
+            f"Creating Notion client and uploader - username: {update.effective_user.username} - "
+            f"user_id: {update.effective_user.id}"
         )
         async with NotionClient(notion_config) as client:
             uploader = NotionUploader(client)
             
+            logger.debug(
+                f"Adding message to buffer - username: {update.effective_user.username} - "
+                f"user_id: {update.effective_user.id}"
+            )
             # 将消息添加到缓冲区
             page_url = await message_buffer.add_message(
                 update.effective_user.id,
@@ -79,10 +68,17 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             # 如果是第一条消息，发送页面URL
             if page_url:
+                logger.info(
+                    f"First message saved to Notion, sending page URL - username: {update.effective_user.username} - "
+                    f"user_id: {update.effective_user.id} - page_url: {page_url}"
+                )
                 await message.reply_text(f"您的消息已保存到Notion页面：{page_url}")
                 message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
                 
     except Exception as e:
         error_msg = f"处理消息时发生错误: {str(e)}"
-        logger.exception(error_msg)
+        logger.exception(
+            f"{error_msg} - username: {update.effective_user.username} - "
+            f"user_id: {update.effective_user.id} - text_content: {message.text}"
+        )
         await message.reply_text(f"❌ {error_msg}")
