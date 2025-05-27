@@ -33,10 +33,12 @@ class MessageBuffer:
         self.buffer_timeout = buffer_timeout  # 缓冲区超时时间（秒）
         self.buffers: Dict[int, Dict] = defaultdict(lambda: {
             'page_id': None,
-            'messages': [],
+            'messages': [],  # 用于存储所有消息
             'task': None,
             'first_reply_sent': False,
-            'media_group_id': None  # 添加媒体组ID跟踪
+            'media_group_id': None,  # 添加媒体组ID跟踪
+            'media_group_messages': {},  # 用于跟踪媒体组消息
+            'last_message': None  # 用于存储最后一条消息
         })
         self.lock = asyncio.Lock()
 
@@ -76,13 +78,24 @@ class MessageBuffer:
                 if buffer['media_group_id'] != message.media_group_id:
                     # 新的媒体组
                     buffer['media_group_id'] = message.media_group_id
-                    buffer['messages'] = [message]  # 重置消息列表
+                    buffer['media_group_messages'] = {message.message_id: message}
                 else:
                     # 同一媒体组的消息
-                    buffer['messages'].append(message)
+                    buffer['media_group_messages'][message.message_id] = message
+                
+                # 立即处理当前消息
+                await self._process_single_message(message, buffer['page_id'], notion_config)
             else:
                 # 非媒体组消息，立即处理
                 await self._process_single_message(message, buffer['page_id'], notion_config)
+            
+            # 更新最后一条消息
+            buffer['last_message'] = message
+            
+            # 重置缓冲区任务
+            if buffer['task']:
+                buffer['task'].cancel()
+            buffer['task'] = asyncio.create_task(self._process_buffer(user_id, notion_config))
             
             return None
 
@@ -109,42 +122,24 @@ class MessageBuffer:
         处理缓冲区中的消息。
         """
         try:
-            while True:
-                await asyncio.sleep(self.buffer_timeout)
+            await asyncio.sleep(self.buffer_timeout)
+            
+            async with self.lock:
+                buffer = self.buffers[user_id]
                 
-                async with self.lock:
-                    buffer = self.buffers[user_id]
-                    if not buffer['messages']:
-                        # 如果没有新消息，清理缓冲区
-                        del self.buffers[user_id]
-                        break
-                    
-                    # 处理缓冲区中的所有消息
-                    messages = buffer['messages']
-                    buffer['messages'] = []
-                    
-                    # 处理媒体组消息
-                    if buffer['media_group_id']:
-                        # 按消息ID排序，确保按正确顺序处理
-                        messages.sort(key=lambda m: m.message_id)
-                        for message in messages:
-                            try:
-                                await self._process_single_message(message, buffer['page_id'], notion_config)
-                            except Exception as e:
-                                logging.error(f"Error processing media group message: {e}", exc_info=True)
-                        buffer['media_group_id'] = None
-                    
-                    # 发送完结通知
-                    if buffer['first_reply_sent']:
-                        try:
-                            await messages[-1].reply_text(f"所有消息已处理完成，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}")
-                        except Exception as e:
-                            logging.error(f"Error sending completion message: {e}", exc_info=True)
-                    
-                    # 清理缓冲区
-                    del self.buffers[user_id]
-                    break
-                    
+                # 发送完结通知
+                if buffer['first_reply_sent'] and buffer['last_message']:
+                    try:
+                        await buffer['last_message'].reply_text(f"所有消息已处理完成，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}")
+                    except Exception as e:
+                        logging.error(f"Error sending completion message: {e}", exc_info=True)
+                
+                # 清理缓冲区
+                del self.buffers[user_id]
+                
+        except asyncio.CancelledError:
+            # 任务被取消，不做任何处理
+            pass
         except Exception as e:
             logging.error(f"Error in buffer processing: {e}", exc_info=True)
             # 确保清理缓冲区
