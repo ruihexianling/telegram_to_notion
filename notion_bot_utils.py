@@ -25,6 +25,10 @@ from bot_setup import is_user_authorized
 logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
 logging.getLogger('httpcore.http11').setLevel(logging.ERROR)
 
+class NotionConfigError(Exception):
+    """Notion 配置错误"""
+    pass
+
 class NotionAPIError(Exception):
     """Notion API 错误基类"""
     def __init__(self, message: str, status_code: int = None, response_body: str = None):
@@ -41,69 +45,454 @@ class NotionPageError(NotionAPIError):
     """Notion 页面操作错误"""
     pass
 
+def validate_notion_config(config: dict) -> None:
+    """验证 Notion 配置是否完整"""
+    required_keys = ['NOTION_KEY', 'NOTION_VERSION', 'PAGE_ID']
+    missing_keys = [key for key in required_keys if key not in config or not config[key]]
+    if missing_keys:
+        raise NotionConfigError(f"缺少必要的 Notion 配置项: {', '.join(missing_keys)}")
+
+# === 配置 Notion 参数 ===
+NOTION_CONFIG = {
+    'NOTION_KEY': NOTION_KEY,
+    'NOTION_VERSION': NOTION_VERSION,
+    'PAGE_ID': PAGE_ID
+}
+
+# 验证全局配置
+try:
+    validate_notion_config(NOTION_CONFIG)
+except NotionConfigError as e:
+    logging.error(f"Notion配置错误: {e}")
+    raise
+
 class NotionUploader:
     """
     Notion上传工具类，封装所有与Notion API交互的方法
     """
     def __init__(self, notion_config: dict):
+        # 验证配置
+        validate_notion_config(notion_config)
+        
         self.notion_key = notion_config['NOTION_KEY']
         self.notion_version = notion_config['NOTION_VERSION']
         self.parent_page_id = notion_config['PAGE_ID']
+        self.supported_mime_types = {
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/quicktime', 'video/x-msvideo',
+            'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg',
+            'application/pdf', 'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'text/plain', 'text/csv', 'text/markdown'
+        }
+
+    async def _make_api_request(self, url: str, method: str = 'POST', payload: Optional[dict] = None, data: Optional[aiohttp.FormData] = None, content_type: Optional[str] = 'application/json') -> dict:
+        """
+        封装API请求逻辑，减少重复代码
+        """
+        headers = {
+            "Authorization": f"Bearer {self.notion_key}",
+            "Notion-Version": self.notion_version,
+            "Content-Type": "multipart/form-data"
+        }
+        if content_type and not data:
+            headers["Content-Type"] = content_type
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                if method == 'POST':
+                    async with session.post(url, json=payload, headers=headers, data=data) as response:
+                        try:
+                            response.raise_for_status()
+                            return await response.json()
+                        except aiohttp.ClientResponseError as e:
+                            response_body = await response.text()
+                            if 'file_uploads' in url:
+                                raise NotionFileUploadError(
+                                    f"Notion 文件上传失败: {e.message}",
+                                    status_code=e.status,
+                                    response_body=response_body
+                                )
+                            else:
+                                raise NotionPageError(
+                                    f"Notion 页面操作失败: {e.message}",
+                                    status_code=e.status,
+                                    response_body=response_body
+                                )
+                elif method == 'PATCH':
+                    async with session.patch(url, json=payload, headers=headers) as response:
+                        try:
+                            response.raise_for_status()
+                            return await response.json()
+                        except aiohttp.ClientResponseError as e:
+                            response_body = await response.text()
+                            raise NotionPageError(
+                                f"Notion 页面更新失败: {e.message}",
+                                status_code=e.status,
+                                response_body=response_body
+                            )
+                elif method == 'GET':
+                    async with session.get(url, headers=headers) as response:
+                        try:
+                            response.raise_for_status()
+                            return await response.json()
+                        except aiohttp.ClientResponseError as e:
+                            response_body = await response.text()
+                            raise NotionPageError(
+                                f"Notion 页面获取失败: {e.message}",
+                                status_code=e.status,
+                                response_body=response_body
+                            )
+                else:
+                    raise ValueError(f"不支持的 HTTP 方法: {method}")
+            except aiohttp.ClientError as e:
+                logging.error(f"Notion API 请求失败 {url}: {e}", exc_info=True)
+                raise NotionAPIError(f"Notion API 请求失败: {str(e)}")
+            except Exception as e:
+                logging.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
+                raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
 
     async def create_page(self, title: str, content_text: Optional[str] = None) -> str:
         """创建Notion页面"""
-        page_id = await create_notion_page(
-            notion_key=self.notion_key,
-            notion_version=self.notion_version,
-            parent_page_id=self.parent_page_id,
-            title=title,
-            content_text=content_text
-        )
-        return page_id
+        if not self.parent_page_id:
+            raise ValueError("Parent page ID is required to create a page")
+            
+        url = "https://api.notion.com/v1/pages"
+        payload = {
+            "parent": {
+                "type": "page_id",
+                "page_id": self.parent_page_id
+            },
+            "properties": {
+                "title": {
+                    "title": [
+                        {
+                            "text": {
+                                "content": title
+                            }
+                        }
+                    ]
+                }
+            },
+            "children": []
+        }
+
+        if content_text:
+            payload["children"].append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": content_text
+                            }
+                        }
+                    ]
+                }
+            })
+
+        response_json = await self._make_api_request(url, method='POST', payload=payload)
+        logging.info(f"Successfully created Notion page with ID: {response_json['id']}")
+        return response_json['id']
 
     async def append_text(self, page_id: str, content_text: str) -> None:
         """添加文本块到页面"""
-        await append_block_to_notion_page(
-            notion_key=self.notion_key,
-            notion_version=self.notion_version,
-            page_id=page_id,
-            content_text=content_text
-        )
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        payload = {
+            "children": [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": content_text
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+        await self._make_api_request(url, method='PATCH', payload=payload)
 
     async def append_file(self, page_id: str, file_path: str, file_name: str, content_type: str) -> None:
         """添加文件块到页面"""
+        # 检查文件类型是否支持
+        if content_type not in self.supported_mime_types:
+            raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
+
         file_size = os.path.getsize(file_path)
         
-        # 创建文件上传对象
-        file_upload_id, upload_url, number_of_parts, mode = await create_file_upload(
-            self.notion_key,
-            self.notion_version,
-            file_name,
-            content_type,
-            file_size
-        )
+        try:
+            # 创建文件上传对象
+            file_upload_id, upload_url, number_of_parts, mode = await self.create_file_upload(
+                file_name,
+                content_type,
+                file_size
+            )
+            
+            # 上传文件
+            uploaded_file_id = await self.upload_file(
+                file_path,
+                file_upload_id,
+                upload_url,
+                content_type,
+                mode,
+                number_of_parts
+            )
+            
+            # 添加文件块到页面
+            await self.append_file_block(page_id, uploaded_file_id, file_name, content_type)
+        except NotionAPIError as e:
+            if e.status_code == 400:
+                raise NotionFileUploadError(f"文件上传到 Notion 失败: {e.message}")
+            elif e.status_code == 413:
+                raise NotionFileUploadError("文件太大，超过 Notion 的限制")
+            elif e.status_code == 401:
+                raise NotionFileUploadError("Notion API 密钥无效或已过期")
+            elif e.status_code == 403:
+                raise NotionFileUploadError("没有权限上传文件到 Notion")
+            raise
+
+    async def append_file_block(self, page_id: str, file_upload_id: str, file_name: str, file_mime_type: str) -> None:
+        """添加文件块到页面"""
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        block_type = "image" if is_image_mime_type(file_mime_type) else "file"
+        block_content_key = "image" if block_type == "image" else "file"
         
-        # 上传文件
-        uploaded_file_id = await upload_file_to_notion(
-            self.notion_key,
-            self.notion_version,
-            file_path,
-            file_upload_id,
-            upload_url,
-            content_type,
-            mode,
-            number_of_parts
-        )
+        payload = {
+            "children": [
+                {
+                    "object": "block",
+                    "type": block_type,
+                    block_content_key: {
+                        "type": "file_upload",
+                        "file_upload": {
+                            "id": file_upload_id
+                        },
+                        "caption": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": file_name if file_name else "Uploaded file"
+                                }
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
         
-        # 添加文件块到页面
-        await append_block_to_notion_page(
-            self.notion_key,
-            self.notion_version,
-            page_id,
-            file_upload_id=uploaded_file_id,
-            file_name=file_name,
-            file_mime_type=content_type
-        )
+        await self._make_api_request(url, method='PATCH', payload=payload)
+
+    async def create_file_upload(self, file_name: str, content_type: str, file_size: int = None) -> Tuple[str, str, Optional[int], Optional[str]]:
+        """在 Notion 中创建一个文件上传对象"""
+        logging.debug(f"Creating file upload for file: {file_name}, content_type: {content_type}, size: {file_size}")
+        url = "https://api.notion.com/v1/file_uploads"
+        
+        # 默认使用单部分上传模式
+        mode = "single_part"
+        number_of_parts = None
+        payload = {"filename": file_name, "content_type": content_type, "mode": mode}
+        
+        # 如果文件大小超过20MB，使用多部分上传模式
+        if file_size and file_size > 20 * 1024 * 1024:  # 20MB
+            mode = "multi_part"
+            # 计算需要的部分数量，每部分10MB
+            part_size = 10 * 1024 * 1024  # 10MB
+            number_of_parts = (file_size + part_size - 1) // part_size  # 向上取整
+            payload = {
+                "mode": mode,
+                "number_of_parts": number_of_parts,
+                "filename": file_name, 
+                "content_type": content_type
+            }
+            logging.debug(f"Using multi-part upload mode with {number_of_parts} parts for file size {file_size}")
+        
+        try:
+            response_json = await self._make_api_request(url, method='POST', payload=payload, content_type='application/json')
+            logging.debug(f"Successfully created file upload object: ID={response_json['id']}, Upload URL={response_json['upload_url']}")
+            return response_json['id'], response_json['upload_url'], number_of_parts, mode
+        except NotionAPIError as e:
+            if e.status_code == 400:
+                # 检查是否是文件类型不支持
+                if "unsupported file type" in str(e.response_body).lower():
+                    raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
+                # 检查是否是文件大小问题
+                elif "file size" in str(e.response_body).lower():
+                    raise NotionFileUploadError("文件大小超过 Notion 的限制")
+                else:
+                    raise NotionFileUploadError(f"文件上传请求无效: {e.message}")
+            raise
+
+    async def upload_file_part(self, file_path: str, upload_url: str, content_type: str, part_number: int, start_byte: int, end_byte: int) -> None:
+        """上传文件的一部分到Notion"""
+        logging.debug(f"Uploading file part {part_number} from byte {start_byte} to {end_byte}")
+        
+        async with aiohttp.ClientSession() as session:
+            try:
+                with open(file_path, "rb") as f:
+                    f.seek(start_byte)
+                    part_data = f.read(end_byte - start_byte)
+                    
+                    data = aiohttp.FormData()
+                    data.add_field('file', part_data, content_type=content_type)
+                    data.add_field('part_number', str(part_number))
+                    
+                    headers = {
+                        "Authorization": f"Bearer {self.notion_key}",
+                        "Notion-Version": self.notion_version
+                    }
+                    
+                    async with session.post(upload_url, headers=headers, data=data) as response:
+                        response.raise_for_status()
+                        
+                logging.debug(f"Successfully uploaded file part {part_number}")
+            except aiohttp.ClientError as e:
+                logging.error(f"Error uploading file part {part_number} to Notion: {e}", exc_info=True)
+                raise
+            except Exception as e:
+                logging.error(f"An unexpected error occurred in upload_file_part: {e}", exc_info=True)
+                raise
+
+    async def complete_multi_part_upload(self, file_upload_id: str) -> None:
+        """完成多部分文件上传"""
+        logging.debug(f"Completing multi-part upload for file_upload_id: {file_upload_id}")
+        url = f"https://api.notion.com/v1/file_uploads/{file_upload_id}/complete"
+        
+        try:
+            await self._make_api_request(url, method='POST', payload={})
+            logging.debug(f"Successfully completed multi-part upload for file_upload_id: {file_upload_id}")
+        except Exception as e:
+            logging.error(f"Error completing multi-part upload: {e}", exc_info=True)
+            raise
+
+    async def upload_file(self, file_path: str, file_upload_id: str, upload_url: str, content_type: str, mode: str = "single_part", number_of_parts: int = None) -> str:
+        """将本地文件上传到 Notion 提供的上传 URL"""
+        logging.debug(f"Uploading file to Notion: {file_path}, file_upload_id: {file_upload_id}, mode: {mode}")
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found at path: {file_path}")
+        
+        file_size = os.path.getsize(file_path)
+        logging.debug(f"File size: {file_size} bytes")
+        
+        if mode == "single_part" or file_size <= 20 * 1024 * 1024:  # 20MB
+            # 单部分上传
+            async with aiohttp.ClientSession() as session:
+                try:
+                    with open(file_path, "rb") as f:
+                        data = aiohttp.FormData()
+                        data.add_field('file', f, filename=os.path.basename(file_path), content_type=content_type)
+
+                        headers = {
+                            "Authorization": f"Bearer {self.notion_key}",
+                            "Notion-Version": self.notion_version
+                        }
+                        async with session.post(upload_url, headers=headers, data=data) as response:
+                            response.raise_for_status()
+                    logging.debug(f"Successfully uploaded file with ID: {file_upload_id}")
+                    return file_upload_id
+                except aiohttp.ClientError as e:
+                    logging.error(f"Error uploading file to Notion: {e}", exc_info=True)
+                    raise
+                except Exception as e:
+                    logging.error(f"An unexpected error occurred in upload_file: {e}", exc_info=True)
+                    raise
+        else:
+            # 多部分上传
+            try:
+                # 如果没有指定部分数量，计算需要的部分数量
+                if not number_of_parts:
+                    part_size = 10 * 1024 * 1024  # 10MB
+                    number_of_parts = (file_size + part_size - 1) // part_size  # 向上取整
+                
+                part_size = (file_size + number_of_parts - 1) // number_of_parts  # 确保每个部分大小均匀
+                # 确保部分大小在5-20MB之间（除了最后一部分可以小于5MB）
+                if part_size < 5 * 1024 * 1024 and number_of_parts > 1:
+                    part_size = 5 * 1024 * 1024
+                elif part_size > 20 * 1024 * 1024:
+                    part_size = 20 * 1024 * 1024
+                
+                # 上传每个部分
+                tasks = []
+                for part_number in range(1, number_of_parts + 1):
+                    start_byte = (part_number - 1) * part_size
+                    end_byte = min(part_number * part_size, file_size)
+                    
+                    task = self.upload_file_part(
+                        file_path, upload_url, content_type, part_number, start_byte, end_byte
+                    )
+                    tasks.append(task)
+                
+                # 并行上传所有部分
+                await asyncio.gather(*tasks)
+                
+                # 完成多部分上传
+                await self.complete_multi_part_upload(file_upload_id)
+                
+                logging.debug(f"Successfully uploaded multi-part file with ID: {file_upload_id}")
+                return file_upload_id
+            except Exception as e:
+                logging.error(f"Error in multi-part upload: {e}", exc_info=True)
+                raise
+
+    async def create_and_append_to_page(self, title: str, content: Optional[str] = None, file_path: Optional[str] = None, file_name: Optional[str] = None, content_type: Optional[str] = None, append_only: bool = False) -> str:
+        """创建页面并添加内容（文本和/或文件）"""
+        if not append_only:
+            logging.info(f"Creating Notion page with title: {title}")
+            # 创建页面
+            page_id = await self.create_page(title)
+            logging.info(f"Notion page created with ID: {page_id}")
+        else:
+            if not self.parent_page_id:
+                raise ValueError("Parent page ID is required for append_only mode")
+            page_id = self.parent_page_id
+
+        # 如果提供了文件路径，处理文件上传
+        if file_path:
+            if not os.path.exists(file_path):
+                logging.error(f"File not found at {file_path}. Cannot upload file.")
+                # 如果文件不存在但有文本内容，仍然尝试添加文本
+                if content:
+                    await self.append_text(page_id, content)
+                    logging.info(f"Appended content to page {page_id} after file not found.")
+                    return page_id
+                else:
+                    raise FileNotFoundError(f"File not found at {file_path}")
+
+            # 确定有效的文件名和内容类型
+            effective_file_name = file_name or os.path.basename(file_path) or title
+            effective_content_type = content_type or mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+            
+            # 获取文件大小
+            file_size = os.path.getsize(file_path)
+            logging.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
+
+            logging.info(f"Uploading file {effective_file_name} to Notion...")
+            # 添加文件到页面
+            await self.append_file(page_id, file_path, effective_file_name, effective_content_type)
+            logging.info(f"File block appended to page {page_id}.")
+
+        # 如果提供了文本内容，添加为段落块
+        if content:
+            logging.info(f"Appending content to page {page_id}...")
+            await self.append_text(page_id, content)
+            logging.info(f"Content block appended to page {page_id}.")
+
+        # 如果没有提供文件或文本，记录警告
+        if not file_path and not content:
+            logging.warning(f"No file_path or content provided. Page {page_id} created but empty.")
+
+        return page_id
 
 class MessageBuffer:
     """
@@ -118,7 +507,8 @@ class MessageBuffer:
             'media_group_id': None,
             'media_group_messages': {},
             'last_message': None,
-            'uploader': None
+            'uploader': None,
+            'notion_config': None  # 添加 notion_config 字段
         })
         self.lock = asyncio.Lock()
 
@@ -126,6 +516,9 @@ class MessageBuffer:
         """添加消息到缓冲区，如果是第一条消息则创建新页面并返回页面URL"""
         async with self.lock:
             buffer = self.buffers[user_id]
+            
+            # 保存 notion_config
+            buffer['notion_config'] = notion_config
             
             # 初始化NotionUploader
             if not buffer['uploader']:
@@ -312,6 +705,9 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
 
     try:
+        # 验证 Notion 配置
+        validate_notion_config(notion_config)
+
         # 将消息添加到缓冲区
         page_url = await message_buffer.add_message(update.effective_user.id, message, notion_config)
         
@@ -321,6 +717,10 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
             # 标记第一条回复已发送
             message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
             
+    except NotionConfigError as e:
+        error_msg = str(e)
+        logging.error(f"Notion配置错误: {error_msg}")
+        await message.reply_text(f"❌ {error_msg}\n请联系管理员检查配置。")
     except NotionFileUploadError as e:
         error_msg = str(e)
         logging.error(f"文件上传错误: {error_msg}")
@@ -333,13 +733,6 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE,
         error_msg = f"处理消息时发生错误: {str(e)}"
         logging.exception(error_msg)
         await message.reply_text(f"❌ {error_msg}")
-
-# === 配置 Notion 参数 ===
-NOTION_CONFIG = {
-    'NOTION_KEY': NOTION_KEY,
-    'NOTION_VERSION': NOTION_VERSION,
-    'PAGE_ID': PAGE_ID
-}
 
 # --- Notion API Helper Functions ---
 async def _make_notion_api_request(url: str, notion_key: str, notion_version: str, method: str = 'POST', payload: Optional[dict] = None, data: Optional[aiohttp.FormData] = None, content_type: Optional[str] = 'application/json') -> dict:
@@ -408,7 +801,7 @@ async def _make_notion_api_request(url: str, notion_key: str, notion_version: st
             logging.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
             raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
 
-
+# 这些函数已移至NotionUploader类中，保留此处代码以便向后兼容
 async def create_file_upload(notion_key: str, notion_version: str, file_name: str, content_type: str, file_size: int = None) -> Tuple[str, str, Optional[int], Optional[str]]:
     """
     在 Notion 中创建一个文件上传对象。
@@ -437,135 +830,57 @@ async def create_file_upload(notion_key: str, notion_version: str, file_name: st
         }
         logging.debug(f"Using multi-part upload mode with {number_of_parts} parts for file size {file_size}")
     
-    response_json = await _make_notion_api_request(url, notion_key, notion_version, method='PATCH', payload=payload, content_type='application/json')
-    logging.debug(f"Successfully created file upload object: ID={response_json['id']}, Upload URL={response_json['upload_url']}")
-    return response_json['id'], response_json['upload_url'], number_of_parts, mode
-
+    try:
+        response_json = await _make_notion_api_request(
+            url, 
+            notion_key, 
+            notion_version, 
+            method='POST',  # 使用 POST 方法
+            payload=payload, 
+            content_type='application/json'
+        )
+        logging.debug(f"Successfully created file upload object: ID={response_json['id']}, Upload URL={response_json['upload_url']}")
+        return response_json['id'], response_json['upload_url'], number_of_parts, mode
+    except NotionAPIError as e:
+        if e.status_code == 400:
+            # 检查是否是文件类型不支持
+            if "unsupported file type" in str(e.response_body).lower():
+                raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
+            # 检查是否是文件大小问题
+            elif "file size" in str(e.response_body).lower():
+                raise NotionFileUploadError("文件大小超过 Notion 的限制")
+            else:
+                raise NotionFileUploadError(f"文件上传请求无效: {e.message}")
+        raise
 
 async def upload_file_part_to_notion(notion_key: str, notion_version: str, file_path: str, upload_url: str, content_type: str, part_number: int, start_byte: int, end_byte: int) -> None:
     """
     上传文件的一部分到Notion。
-    """
-    logging.debug(f"Uploading file part {part_number} from byte {start_byte} to {end_byte}")
     
-    async with aiohttp.ClientSession() as session:
-        try:
-            with open(file_path, "rb") as f:
-                f.seek(start_byte)
-                part_data = f.read(end_byte - start_byte)
-                
-                data = aiohttp.FormData()
-                data.add_field('file', part_data, content_type=content_type)
-                data.add_field('part_number', str(part_number))
-                
-                headers = {
-                    "Authorization": f"Bearer {notion_key}",
-                    "Notion-Version": notion_version
-                }
-                
-                async with session.post(upload_url, headers=headers, data=data) as response:
-                    response.raise_for_status()
-                    
-            logging.debug(f"Successfully uploaded file part {part_number}")
-        except aiohttp.ClientError as e:
-            logging.error(f"Error uploading file part {part_number} to Notion: {e}", exc_info=True)
-            raise
-        except Exception as e:
-            logging.error(f"An unexpected error occurred in upload_file_part_to_notion: {e}", exc_info=True)
-            raise
-
+    注意：此函数已移至NotionUploader类中，保留此处代码以便向后兼容
+    """
+    uploader = NotionUploader({'NOTION_KEY': notion_key, 'NOTION_VERSION': notion_version, 'PAGE_ID': NOTION_CONFIG['PAGE_ID']})
+    await uploader.upload_file_part(file_path, upload_url, content_type, part_number, start_byte, end_byte)
 
 async def complete_multi_part_upload(notion_key: str, notion_version: str, file_upload_id: str) -> None:
     """
     完成多部分文件上传。
-    """
-    logging.debug(f"Completing multi-part upload for file_upload_id: {file_upload_id}")
-    url = f"https://api.notion.com/v1/file_uploads/{file_upload_id}/complete"
     
-    try:
-        await _make_notion_api_request(url, notion_key, notion_version, method='POST', payload={})
-        logging.debug(f"Successfully completed multi-part upload for file_upload_id: {file_upload_id}")
-    except Exception as e:
-        logging.error(f"Error completing multi-part upload: {e}", exc_info=True)
-        raise
-
+    注意：此函数已移至NotionUploader类中，保留此处代码以便向后兼容
+    """
+    uploader = NotionUploader({'NOTION_KEY': notion_key, 'NOTION_VERSION': notion_version, 'PAGE_ID': NOTION_CONFIG['PAGE_ID']})
+    await uploader.complete_multi_part_upload(file_upload_id)
 
 async def upload_file_to_notion(notion_key: str, notion_version: str, file_path: str, file_upload_id: str, upload_url: str, content_type: str, mode: str = "single_part", number_of_parts: int = None) -> str:
     """
     将本地文件上传到 Notion 提供的上传 URL。
     支持单部分上传和多部分上传。
     返回 file_upload_id。
+    
+    注意：此函数已移至NotionUploader类中，保留此处代码以便向后兼容
     """
-    logging.debug(f"Entering upload_file_to_notion for file_upload_id: {file_upload_id}, upload_url: {upload_url}, mode: {mode}")
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File not found at path: {file_path}")
-    
-    file_size = os.path.getsize(file_path)
-    logging.debug(f"File size: {file_size} bytes")
-    
-    if mode == "single_part" or file_size <= 20 * 1024 * 1024:  # 20MB
-        # 单部分上传
-        async with aiohttp.ClientSession() as session:
-            try:
-                with open(file_path, "rb") as f:
-                    data = aiohttp.FormData()
-                    data.add_field('file', f, filename=os.path.basename(file_path), content_type=content_type)
-
-                    headers = {
-                        "Authorization": f"Bearer {notion_key}",
-                        "Notion-Version": notion_version
-                    }
-                    async with session.post(upload_url, headers=headers, data=data) as response:
-                        response.raise_for_status()
-                logging.debug(f"Successfully uploaded file with ID: {file_upload_id}")
-                return file_upload_id
-            except aiohttp.ClientError as e:
-                logging.error(f"Error uploading file to Notion: {e}", exc_info=True)
-                raise
-            except Exception as e:
-                logging.error(f"An unexpected error occurred in upload_file_to_notion: {e}", exc_info=True)
-                raise
-            finally:
-                pass
-    else:
-        # 多部分上传
-        try:
-            # 如果没有指定部分数量，计算需要的部分数量
-            if not number_of_parts:
-                part_size = 10 * 1024 * 1024  # 10MB
-                number_of_parts = (file_size + part_size - 1) // part_size  # 向上取整
-            
-            part_size = (file_size + number_of_parts - 1) // number_of_parts  # 确保每个部分大小均匀
-            # 确保部分大小在5-20MB之间（除了最后一部分可以小于5MB）
-            if part_size < 5 * 1024 * 1024 and number_of_parts > 1:
-                part_size = 5 * 1024 * 1024
-            elif part_size > 20 * 1024 * 1024:
-                part_size = 20 * 1024 * 1024
-            
-            # 上传每个部分
-            tasks = []
-            for part_number in range(1, number_of_parts + 1):
-                start_byte = (part_number - 1) * part_size
-                end_byte = min(part_number * part_size, file_size)
-                
-                task = upload_file_part_to_notion(
-                    notion_key, notion_version, file_path, upload_url,
-                    content_type, part_number, start_byte, end_byte
-                )
-                tasks.append(task)
-            
-            # 并行上传所有部分
-            await asyncio.gather(*tasks)
-            
-            # 完成多部分上传
-            await complete_multi_part_upload(notion_key, notion_version, file_upload_id)
-            
-            logging.debug(f"Successfully uploaded multi-part file with ID: {file_upload_id}")
-            return file_upload_id
-        except Exception as e:
-            logging.error(f"Error in multi-part upload: {e}", exc_info=True)
-            raise
-
+    uploader = NotionUploader({'NOTION_KEY': notion_key, 'NOTION_VERSION': notion_version, 'PAGE_ID': NOTION_CONFIG['PAGE_ID']})
+    return await uploader.upload_file(file_path, file_upload_id, upload_url, content_type, mode, number_of_parts)
 
 def is_image_mime_type(mime_type: str) -> bool:
     """
@@ -573,106 +888,37 @@ def is_image_mime_type(mime_type: str) -> bool:
     """
     return mime_type and mime_type.startswith('image/')
 
-
 async def create_notion_page(notion_key: str, notion_version: str, parent_page_id: str, title: str, content_text: str = None) -> str:
     """
     在 Notion 中创建新页面。
     注意：此函数仅创建页面标题和可选的初始文本内容。文件块将通过 append_block_to_notion_page 追加。
+    
+    注意：此函数已移至NotionUploader类中，保留此处代码以便向后兼容
     """
     logging.debug(f"Entering create_notion_page with title: {title}")
-    url = "https://api.notion.com/v1/pages"
-    payload = {
-        "parent": {
-            "type": "page_id",
-            "page_id": parent_page_id
-        },
-        "properties": {
-            "title": {
-                "title": [
-                    {
-                        "text": {
-                            "content": title
-                        }
-                    }
-                ]
-            }
-        },
-        "children": []
-    }
-
-    if content_text:
-        payload["children"].append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": content_text
-                        }
-                    }
-                ]
-            }
-        })
-
-    response_json = await _make_notion_api_request(url, notion_key, notion_version, method='POST', payload=payload)
-    logging.info(f"Successfully created Notion page with ID: {response_json['id']}")
-    return response_json['id']
-
+    uploader = NotionUploader({'NOTION_KEY': notion_key, 'NOTION_VERSION': notion_version, 'PAGE_ID': parent_page_id})
+    return await uploader.create_page(title, content_text)
 
 async def append_block_to_notion_page(notion_key: str, notion_version: str, page_id: str, content_text: str = None, file_upload_id: str = None, file_name: str = None, file_mime_type: str = None):
     """
     向一个已存在的 Notion 页面追加一个文件/图片块或文本块。
+    
+    注意：此函数已移至NotionUploader类中，保留此处代码以便向后兼容
     """
     logging.debug(f"Appending block to Notion page {page_id}...")
-    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
-    new_blocks = []
-
+    uploader = NotionUploader({'NOTION_KEY': notion_key, 'NOTION_VERSION': notion_version})
+    
     if file_upload_id:
-        block_type = "image" if is_image_mime_type(file_mime_type) else "file"
-        block_content_key = "image" if block_type == "image" else "file"
-        new_blocks.append({
-            "object": "block",
-            "type": block_type,
-            block_content_key: {
-                "type": "file_upload",
-                "file_upload": {
-                    "id": file_upload_id
-                },
-                "caption": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": file_name if file_name else "Uploaded file"
-                        }
-                    }
-                ]
-            }
-        })
+        await uploader.append_file_block(page_id, file_upload_id, file_name, file_mime_type)
+    
     if content_text:
-        new_blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": content_text
-                        }
-                    }
-                ]
-            }
-        })
-
-    if not new_blocks:
+        await uploader.append_text(page_id, content_text)
+    
+    if not file_upload_id and not content_text:
         logging.warning(f"No content provided to append_block_to_notion_page for page {page_id}. Skipping.")
         return {}  # Return an empty dict if no blocks were added
-
-    payload = {"children": new_blocks}
-    return await _make_notion_api_request(url, notion_key, notion_version, method='PATCH', payload=payload)
-
+    
+    return {}  # 返回空字典以保持与原函数相同的返回类型
 
 # --- Telegram Bot Handler Functions ---
 async def _process_text_message(message, notion_config):
@@ -830,7 +1076,6 @@ async def _process_file_message(message, notion_config):
             os.remove(temp_file_path)
             logging.info("Temporary file removed.")
 
-
 async def download_file_from_url(file_url: str, temp_dir: str = "/tmp") -> str:
     """
     从给定的 URL 下载文件到临时目录。
@@ -864,7 +1109,6 @@ async def download_file_from_url(file_url: str, temp_dir: str = "/tmp") -> str:
         logging.error(f"An unexpected error occurred during file download from URL {file_url}: {e}", exc_info=True)
         raise
 
-
 async def save_upload_file_temporarily(file: UploadFile, temp_dir: str = "/tmp") -> tuple[str, str, str]:
     """
     Saves an uploaded file temporarily to disk.
@@ -894,7 +1138,6 @@ async def save_upload_file_temporarily(file: UploadFile, temp_dir: str = "/tmp")
             os.remove(file_path)
             logging.info(f"Cleaned up partial temporary file {file_path} after error.")
         raise
-
 
 # This function essentially fulfills the 'api_upload' request's needs
 async def create_and_append_to_notion_page(
