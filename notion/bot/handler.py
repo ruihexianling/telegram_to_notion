@@ -2,13 +2,14 @@
 from typing import Optional
 from telegram import Update
 from telegram.ext import ContextTypes
+from fastapi import APIRouter, Request, HTTPException
+from starlette.responses import JSONResponse
 
 from ..api.client import NotionClient
 from ..core.buffer import MessageBuffer
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 import config
-
 
 from common_utils import is_user_authorized
 
@@ -25,6 +26,9 @@ notion_config = NotionConfig({
 
 # 创建全局消息缓冲区实例
 message_buffer = MessageBuffer()
+
+# 创建路由
+router = APIRouter()
 
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理所有消息"""
@@ -82,3 +86,26 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"user_id: {update.effective_user.id} - text_content: {message.text}"
         )
         await message.reply_text(f"❌ {error_msg}")
+
+@router.post(get_route("api_telegram_webhook"))
+async def telegram_webhook(request: Request):
+    """处理 Telegram webhook 请求"""
+    try:
+        # 获取当前应用实例
+        application = Application.get_current()
+        
+        # 解析更新
+        update = Update.de_json(await request.json(), application.bot)
+        
+        # 处理更新
+        await application.process_update(update)
+        
+        logger.info(
+            f"Processed Telegram update - update_id: {update.update_id}"
+        )
+        
+        return JSONResponse({"status": "success"})
+        
+    except Exception as e:
+        logger.exception(f"Error processing Telegram update - error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -10,6 +10,7 @@ from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
+from notion.bot.handler import router as bot_router
 from notion.routes import get_route, API_PREFIX
 
 from logger import setup_logger
@@ -35,6 +36,7 @@ app.add_middleware(
 # 添加路由
 app.include_router(webhook_router, prefix=API_PREFIX)
 app.include_router(api_router, prefix=API_PREFIX)
+app.include_router(bot_router, prefix=API_PREFIX)
 
 # API 路由
 @app.get(get_route("root"))
@@ -74,22 +76,6 @@ async def health_check():
                 "error": str(e)
             }
         )
-
-# @app.post(f"/{WEBHOOK_PATH}")
-# async def telegram_webhook(request: Request):
-#     """处理 Telegram webhook 请求"""
-#     try:
-#         update = await request.json()
-#         logger.debug(f"Received webhook update - update_id: {update.get('update_id')}")
-        
-#         # 获取当前应用实例
-#         application = Application.get_current()
-#         # 处理更新
-#         await application.process_update(update)
-#         return {"status": "ok"}
-#     except Exception as e:
-#         logger.exception(f"Error processing webhook update - error: {e}")
-#         raise
 
 @app.on_event("startup")
 async def startup_event():

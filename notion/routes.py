@@ -18,7 +18,7 @@ ROOT_PATH = "/"
 ROUTES: Dict[str, str] = {
     # API 路由
     "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
-    "api_telegram_webhook": f"{TELEGRAM_WEBHOOK_PATH}",
+    "api_telegram_webhook": f"{API_PREFIX}/{TELEGRAM_WEBHOOK_PATH}",
     
     # 健康检查路由
     "health_check": f"/{HEALTH_CHECK_PATH}",
