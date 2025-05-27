@@ -15,7 +15,7 @@ PAGE_ID= os.getenv('PAGE_ID')  # 替换为你的Notion页面ID
 # Webhook配置
 USE_WEBHOOK = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
 PORT = int(os.getenv('PORT', 8443))
-RENDER_WEBHOOK_URL = os.getenv('RENDER_WEBHOOK_URL') # 替换为你的Webhook URL
+WEBHOOK_URL = os.getenv('WEBHOOK_URL') # 替换为你的Webhook URL
 WEBHOOK_PATH = os.getenv('WEBHOOK_PATH') # 替换为你的Webhook路径
 
 # 授权用户列表

@@ -10,6 +10,59 @@ from logger import setup_logger
 # 配置日志
 logger = setup_logger(__name__)
 
+async def setup_webhook(application: Application, webhook_url: str) -> None:
+    """设置 webhook
+    
+    Args:
+        application: Telegram 应用实例
+        webhook_url: webhook URL
+    """
+    try:
+        logger.info(f"Setting up webhook - url: {webhook_url}")
+        
+        # 设置 webhook
+        await application.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=[
+                "message",
+                "edited_message",
+                "channel_post",
+                "edited_channel_post",
+                "inline_query",
+                "chosen_inline_result",
+                "callback_query",
+                "shipping_query",
+                "pre_checkout_query",
+                "poll",
+                "poll_answer",
+                "my_chat_member",
+                "chat_member",
+                "chat_join_request"
+            ]
+        )
+        
+        # 获取 webhook 信息
+        webhook_info = await application.bot.get_webhook_info()
+        logger.info(f"Webhook info - url: {webhook_info.url} - has_custom_certificate: {webhook_info.has_custom_certificate} - pending_update_count: {webhook_info.pending_update_count}")
+        
+    except Exception as e:
+        logger.exception(f"Failed to setup webhook - error: {e}")
+        raise
+
+async def remove_webhook(application: Application) -> None:
+    """移除 webhook
+    
+    Args:
+        application: Telegram 应用实例
+    """
+    try:
+        logger.info("Removing webhook")
+        await application.bot.delete_webhook()
+        logger.info("Webhook removed successfully")
+    except Exception as e:
+        logger.exception(f"Failed to remove webhook - error: {e}")
+        raise
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a message to the user."""
     logger.error(
