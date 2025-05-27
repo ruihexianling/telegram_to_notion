@@ -1,3 +1,4 @@
+from telegram import BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 from functools import partial
 # Remove the import of handle_any_message to avoid circular import
