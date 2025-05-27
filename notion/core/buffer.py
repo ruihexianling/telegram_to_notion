@@ -4,7 +4,7 @@ import asyncio
 from typing import Dict, Optional
 from collections import defaultdict
 from telegram import Message as TelegramMessage, Bot
-from ..models.message import Message
+from ..core.message import Message
 from .uploader import NotionUploader
 
 class MessageBuffer:

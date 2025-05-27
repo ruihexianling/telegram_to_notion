@@ -1,9 +1,9 @@
 """Notion 集成模块"""
 from .api.client import NotionClient
 from .api.exceptions import NotionAPIError, NotionConfigError, NotionFileUploadError, NotionPageError
-from .models.message import Message
-from .services.uploader import NotionUploader
-from .services.buffer import MessageBuffer
+from .core.message import Message
+from .core.uploader import NotionUploader
+from .core.buffer import MessageBuffer
 from .utils.config import NotionConfig
 from .utils.file_utils import (
     save_upload_file_temporarily,
@@ -11,6 +11,7 @@ from .utils.file_utils import (
     cleanup_temp_file,
     cleanup_temp_dir
 )
+from .utils.logger import setup_logger, logger
 
 __all__ = [
     'NotionClient',
@@ -25,5 +26,7 @@ __all__ = [
     'save_upload_file_temporarily',
     'get_file_info',
     'cleanup_temp_file',
-    'cleanup_temp_dir'
+    'cleanup_temp_dir',
+    'setup_logger',
+    'logger'
 ] 

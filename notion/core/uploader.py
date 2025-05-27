@@ -8,7 +8,7 @@ import aiohttp
 
 from ..api.client import NotionClient
 from ..api.exceptions import NotionFileUploadError
-from ..models.message import Message
+from ..core.message import Message
 from ..utils.file_utils import get_file_info, cleanup_temp_file
 
 class NotionUploader:
