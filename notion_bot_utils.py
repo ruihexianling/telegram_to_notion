@@ -388,7 +388,7 @@ async def _process_file_message(message, notion_config):
                 return None, str(e)
             file_name = file_obj.file_name
             file_obj = await file_obj.get_file()
-            file_extension = file_name.split('.')[-1] if '.' in file_name else 'file'
+            file_extension = file_name.split('.')[-1] if file_name and '.' in file_name else 'file'
             content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
             file_name_for_notion = file_name
         elif message.video:
@@ -396,14 +396,14 @@ async def _process_file_message(message, notion_config):
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = 'mp4'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'video/mp4'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(getattr(file_obj, 'file_name', ''))[0] or 'video/mp4'
             file_name_for_notion = f"telegram_video_{file_obj.file_id}.mp4"
         elif message.audio:
             file_obj = message.audio
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'audio/mpeg'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(getattr(file_obj, 'file_name', ''))[0] or 'audio/mpeg'
             file_name_for_notion = file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
         elif message.voice:
             file_obj = message.voice
