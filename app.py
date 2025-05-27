@@ -86,7 +86,7 @@ async def startup_event():
         application = setup_bot()
         
         # 设置 webhook
-        webhook_url = f"{WEBHOOK_URL}/{get_route('api_telegram_webhook')}"
+        webhook_url = f"{WEBHOOK_URL}{get_route('api_telegram_webhook')}"
         logger.info(f"Setting webhook URL: {webhook_url}")
         
         # 初始化机器人
