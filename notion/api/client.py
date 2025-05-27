@@ -10,6 +10,17 @@ class NotionClient:
     def __init__(self, config: NotionConfig):
         self.config = config
         self._session: Optional[aiohttp.ClientSession] = None
+        self._parent_page_id: Optional[str] = None
+
+    @property
+    def parent_page_id(self) -> str:
+        """获取父页面 ID"""
+        return self._parent_page_id or self.config.parent_page_id
+
+    @parent_page_id.setter
+    def parent_page_id(self, value: str):
+        """设置父页面 ID"""
+        self._parent_page_id = value
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession()
@@ -87,7 +98,7 @@ class NotionClient:
         payload = {
             "parent": {
                 "type": "page_id",
-                "page_id": self.config.parent_page_id
+                "page_id": self.parent_page_id
             },
             "properties": {
                 "title": {

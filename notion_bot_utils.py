@@ -88,7 +88,7 @@ async def api_upload(request: Request, title: str = Form(...), content: Optional
     temp_dir = None
     try:
         # 创建消息对象
-        message = Message(content=content)
+        message = Message(content=content, title=title)
 
         # 处理文件上传
         if file:
