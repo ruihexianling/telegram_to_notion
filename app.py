@@ -75,21 +75,21 @@ async def health_check():
             }
         )
 
-@app.post(f"/{WEBHOOK_PATH}")
-async def telegram_webhook(request: Request):
-    """处理 Telegram webhook 请求"""
-    try:
-        update = await request.json()
-        logger.debug(f"Received webhook update - update_id: {update.get('update_id')}")
+# @app.post(f"/{WEBHOOK_PATH}")
+# async def telegram_webhook(request: Request):
+#     """处理 Telegram webhook 请求"""
+#     try:
+#         update = await request.json()
+#         logger.debug(f"Received webhook update - update_id: {update.get('update_id')}")
         
-        # 获取当前应用实例
-        application = Application.get_current()
-        # 处理更新
-        await application.process_update(update)
-        return {"status": "ok"}
-    except Exception as e:
-        logger.exception(f"Error processing webhook update - error: {e}")
-        raise
+#         # 获取当前应用实例
+#         application = Application.get_current()
+#         # 处理更新
+#         await application.process_update(update)
+#         return {"status": "ok"}
+#     except Exception as e:
+#         logger.exception(f"Error processing webhook update - error: {e}")
+#         raise
 
 @app.on_event("startup")
 async def startup_event():

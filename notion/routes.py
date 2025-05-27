@@ -18,13 +18,16 @@ ROOT_PATH = "/"
 ROUTES: Dict[str, str] = {
     # API 路由
     "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
-    "api_telegram_webhook": f"{API_PREFIX}/{TELEGRAM_WEBHOOK_PATH}",
+    "api_telegram_webhook": f"{TELEGRAM_WEBHOOK_PATH}",
     
     # 健康检查路由
     "health_check": f"/{HEALTH_CHECK_PATH}",
     
     # 根路由
     "root": ROOT_PATH,
+    # API 上传页面路由
+    "api_upload_page": f"{API_PREFIX}/upload_page",
+    "api_upload_block": f"{API_PREFIX}/upload_block",
 }
 
 def get_route(route_name: str) -> str:
@@ -38,4 +41,4 @@ def get_route(route_name: str) -> str:
     """
     if route_name not in ROUTES:
         raise ValueError(f"Unknown route name: {route_name}")
-    return ROUTES[route_name] 
+    return ROUTES[route_name]
