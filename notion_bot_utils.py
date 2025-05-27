@@ -396,21 +396,21 @@ async def _process_file_message(message, notion_config):
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = 'mp4'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'video/mp4'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'video/mp4'
             file_name_for_notion = f"telegram_video_{file_obj.file_id}.mp4"
         elif message.audio:
             file_obj = message.audio
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'audio/mpeg'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'audio/mpeg'
             file_name_for_notion = file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
         elif message.voice:
             file_obj = message.voice
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = 'ogg'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'audio/ogg'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'audio/ogg'
             file_name_for_notion = f"telegram_voice_{file_obj.file_id}.ogg"
         else:
             return None, "抱歉，我目前只支持照片、文档、视频、音频和语音消息。"
