@@ -77,17 +77,33 @@ class NotionUploader:
         self.notion_key = notion_config['NOTION_KEY']
         self.notion_version = notion_config['NOTION_VERSION']
         self.parent_page_id = notion_config['PAGE_ID']
+        
+        # 更新支持的文件类型
         self.supported_mime_types = {
-            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-            'video/mp4', 'video/quicktime', 'video/x-msvideo',
-            'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg',
-            'application/pdf', 'application/msword',
+            # 图片
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+            # 视频
+            'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm',
+            # 音频
+            'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm',
+            # 文档
+            'application/pdf',
+            'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-powerpoint',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            'text/plain', 'text/csv', 'text/markdown'
+            # 文本
+            'text/plain', 'text/csv', 'text/markdown', 'text/html'
+        }
+        
+        # 定义预览支持的文件类型
+        self.previewable_types = {
+            'image': {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'},
+            'video': {'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/webm'},
+            'audio': {'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm'},
+            'pdf': {'application/pdf'}
         }
 
     async def _make_api_request(self, url: str, method: str = 'POST', payload: Optional[dict] = None, data: Optional[aiohttp.FormData] = None, content_type: Optional[str] = 'application/json') -> dict:
@@ -224,51 +240,21 @@ class NotionUploader:
         }
         await self._make_api_request(url, method='PATCH', payload=payload)
 
-    async def append_file(self, page_id: str, file_path: str, file_name: str, content_type: str) -> None:
-        """添加文件块到页面"""
-        # 检查文件类型是否支持
-        if content_type not in self.supported_mime_types:
-            raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
-
-        file_size = os.path.getsize(file_path)
-        
-        try:
-            # 创建文件上传对象
-            file_upload_id, upload_url, number_of_parts, mode = await self.create_file_upload(
-                file_name,
-                content_type,
-                file_size
-            )
-            
-            # 上传文件
-            uploaded_file_id = await self.upload_file(
-                file_path,
-                file_upload_id,
-                upload_url,
-                content_type,
-                mode,
-                number_of_parts
-            )
-            
-            # 添加文件块到页面
-            await self.append_file_block(page_id, uploaded_file_id, file_name, content_type)
-        except NotionAPIError as e:
-            if e.status_code == 400:
-                raise NotionFileUploadError(f"文件上传到 Notion 失败: {e.message}")
-            elif e.status_code == 413:
-                raise NotionFileUploadError("文件太大，超过 Notion 的限制")
-            elif e.status_code == 401:
-                raise NotionFileUploadError("Notion API 密钥无效或已过期")
-            elif e.status_code == 403:
-                raise NotionFileUploadError("没有权限上传文件到 Notion")
-            raise
-
     async def append_file_block(self, page_id: str, file_upload_id: str, file_name: str, file_mime_type: str) -> None:
-        """添加文件块到页面"""
+        """添加文件块到页面，支持预览"""
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
-        block_type = "image" if is_image_mime_type(file_mime_type) else "file"
-        block_content_key = "image" if block_type == "image" else "file"
         
+        # 确定块类型
+        block_type = None
+        for type_name, mime_types in self.previewable_types.items():
+            if file_mime_type in mime_types:
+                block_type = type_name
+                break
+        
+        if not block_type:
+            block_type = "file"  # 默认使用文件块
+        
+        block_content_key = block_type
         payload = {
             "children": [
                 {
@@ -293,6 +279,47 @@ class NotionUploader:
         }
         
         await self._make_api_request(url, method='PATCH', payload=payload)
+
+    async def append_file(self, page_id: str, file_path: str, file_name: str, content_type: str) -> None:
+        """添加文件块到页面"""
+        # 检查文件类型是否支持
+        if content_type not in self.supported_mime_types:
+            raise NotionFileUploadError(f"Notion 不支持此类型的文件: {file_name}")
+
+        file_size = os.path.getsize(file_path)
+        
+        try:
+            # 创建文件上传对象
+            file_upload_id, upload_url, number_of_parts, mode = await self.create_file_upload(
+                file_name,
+                content_type,
+                file_size
+            )
+            
+            # 上传文件
+            uploaded_file_id = await self.upload_file(
+                file_path,
+                file_upload_id,
+                upload_url,
+                content_type,
+                mode,
+                number_of_parts
+            )
+            
+            # 添加文件块到页面，支持预览
+            await self.append_file_block(page_id, uploaded_file_id, file_name, content_type)
+            
+            logging.info(f"Successfully uploaded and appended {content_type} file: {file_name}")
+        except NotionAPIError as e:
+            if e.status_code == 400:
+                raise NotionFileUploadError(f"文件上传到 Notion 失败: {e.message} ({file_extension})")
+            elif e.status_code == 413:
+                raise NotionFileUploadError("文件太大，超过 Notion 的限制")
+            elif e.status_code == 401:
+                raise NotionFileUploadError("Notion API 密钥无效或已过期")
+            elif e.status_code == 403:
+                raise NotionFileUploadError("没有权限上传文件到 Notion")
+            raise
 
     async def create_file_upload(self, file_name: str, content_type: str, file_size: int = None) -> Tuple[str, str, Optional[int], Optional[str]]:
         """在 Notion 中创建一个文件上传对象"""
@@ -326,7 +353,7 @@ class NotionUploader:
             if e.status_code == 400:
                 # 检查是否是文件类型不支持
                 if "unsupported file type" in str(e.response_body).lower():
-                    raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
+                    raise NotionFileUploadError(f"Notion 不支持此类型的文件: {file_name}")
                 # 检查是否是文件大小问题
                 elif "file size" in str(e.response_body).lower():
                     raise NotionFileUploadError("文件大小超过 Notion 的限制")
@@ -508,7 +535,8 @@ class MessageBuffer:
             'media_group_messages': {},
             'last_message': None,
             'uploader': None,
-            'notion_config': None  # 添加 notion_config 字段
+            'notion_config': None,
+            'has_error': False  # 添加错误状态标记
         })
         self.lock = asyncio.Lock()
 
@@ -530,18 +558,23 @@ class MessageBuffer:
                 now_beijing = datetime.datetime.now(beijing_tz)
                 title = f"Telegram消息 {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}"
                 
-                # 创建新页面
-                page_id = await buffer['uploader'].create_page(title)
-                buffer['page_id'] = page_id
-                
-                # 立即处理第一条消息
-                await self._process_single_message(message, buffer)
-                
-                # 启动超时任务
-                buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
-                
-                # 返回页面URL
-                return f"https://www.notion.so/{page_id.replace('-', '')}"
+                try:
+                    # 创建新页面
+                    page_id = await buffer['uploader'].create_page(title)
+                    buffer['page_id'] = page_id
+                    
+                    # 立即处理第一条消息
+                    await self._process_single_message(message, buffer)
+                    
+                    # 启动超时任务
+                    buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
+                    
+                    # 返回页面URL
+                    return f"https://www.notion.so/{page_id.replace('-', '')}"
+                except Exception as e:
+                    logging.error(f"Error creating page or processing first message: {e}", exc_info=True)
+                    buffer['has_error'] = True
+                    raise
             
             # 检查是否是媒体组消息
             if message.media_group_id:
@@ -574,8 +607,11 @@ class MessageBuffer:
                 await buffer['uploader'].append_text(buffer['page_id'], message.text)
             elif message.effective_attachment:
                 await self._process_file_message(message, buffer)
+            # 重置错误状态
+            buffer['has_error'] = False
         except Exception as e:
             logging.error(f"Error processing single message: {e}", exc_info=True)
+            buffer['has_error'] = True
             raise
 
     async def _process_file_message(self, message: Message, buffer: Dict) -> None:
@@ -607,7 +643,7 @@ class MessageBuffer:
                     content_type
                 )
             except NotionFileUploadError as e:
-                error_msg = f"文件上传到 Notion 失败: {e.message}"
+                error_msg = f"文件上传到 Notion 失败: {e.message} ({file_extension})"
                 if e.status_code == 400:
                     error_msg = "Notion 不支持此类型的文件或文件格式不正确"
                 elif e.status_code == 413:
@@ -616,6 +652,7 @@ class MessageBuffer:
                     error_msg = "Notion API 密钥无效或已过期"
                 elif e.status_code == 403:
                     error_msg = "没有权限上传文件到 Notion"
+                buffer['has_error'] = True  # 设置错误状态
                 raise NotionFileUploadError(error_msg)
             
             # 如果有说明文字，添加为文本块
@@ -624,9 +661,11 @@ class MessageBuffer:
                 
         except NotionFileUploadError as e:
             # 重新抛出 NotionFileUploadError，让上层处理
+            buffer['has_error'] = True  # 设置错误状态
             raise
         except Exception as e:
             logging.error(f"处理文件消息时发生错误: {e}", exc_info=True)
+            buffer['has_error'] = True  # 设置错误状态
             raise NotionFileUploadError(f"处理文件时发生错误: {str(e)}")
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
@@ -658,7 +697,8 @@ class MessageBuffer:
         elif message.voice:
             file_obj = message.voice
             file_obj = await file_obj.get_file()
-            return file_obj, 'ogg', getattr(file_obj, 'mime_type', None) or 'audio/ogg', f"telegram_voice_{file_obj.file_id}.ogg"
+            return file_obj, 'ogg', getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'audio/ogg'
+            file_name_for_notion = f"telegram_voice_{file_obj.file_id}.ogg"
         return None
 
     async def _process_buffer(self, user_id: int) -> None:
@@ -670,10 +710,12 @@ class MessageBuffer:
                 buffer = self.buffers[user_id]
                 
                 # 发送完结通知
-                if buffer['first_reply_sent'] and buffer['last_message']:
+                if buffer['page_id'] and buffer['last_message']:  # 只要有页面ID和最后一条消息就发送通知
                     try:
+                        # 如果有错误，添加错误提示
+                        error_msg = "（部分文件上传失败）" if buffer.get('has_error', False) else ""
                         await buffer['last_message'].reply_text(
-                            f"所有消息已处理完成，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}"
+                            f"所有消息已处理完成{error_msg}，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}"
                         )
                     except Exception as e:
                         logging.error(f"Error sending completion message: {e}", exc_info=True)
@@ -845,7 +887,7 @@ async def create_file_upload(notion_key: str, notion_version: str, file_name: st
         if e.status_code == 400:
             # 检查是否是文件类型不支持
             if "unsupported file type" in str(e.response_body).lower():
-                raise NotionFileUploadError(f"Notion 不支持此类型的文件: {content_type}")
+                raise NotionFileUploadError(f"Notion 不支持此类型的文件: {file_name}")
             # 检查是否是文件大小问题
             elif "file size" in str(e.response_body).lower():
                 raise NotionFileUploadError("文件大小超过 Notion 的限制")
