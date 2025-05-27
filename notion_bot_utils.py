@@ -78,11 +78,11 @@ async def create_file_upload(notion_key: str, notion_version: str, file_name: st
     url = "https://api.notion.com/v1/file_uploads"
     
     # 默认使用单部分上传模式
+    mode = "single_part"
+    number_of_parts = None
     payload = {"filename": file_name, "content_type": content_type, "mode": mode}
     
     # 如果文件大小超过20MB，使用多部分上传模式
-    mode = "single_part"
-    number_of_parts = None
     if file_size and file_size > 20 * 1024 * 1024:  # 20MB
         mode = "multi_part"
         # 计算需要的部分数量，每部分10MB
@@ -389,28 +389,28 @@ async def _process_file_message(message, notion_config):
             file_name = file_obj.file_name
             file_obj = await file_obj.get_file()
             file_extension = file_name.split('.')[-1] if '.' in file_name else 'file'
-            content_type = file_obj.mime_type or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
             file_name_for_notion = file_name
         elif message.video:
             file_obj = message.video
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = 'mp4'
-            content_type = file_obj.mime_type or 'video/mp4'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'video/mp4'
             file_name_for_notion = f"telegram_video_{file_obj.file_id}.mp4"
         elif message.audio:
             file_obj = message.audio
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
-            content_type = file_obj.mime_type or 'audio/mpeg'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'audio/mpeg'
             file_name_for_notion = file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
         elif message.voice:
             file_obj = message.voice
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = 'ogg'
-            content_type = file_obj.mime_type or 'audio/ogg'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'audio/ogg'
             file_name_for_notion = f"telegram_voice_{file_obj.file_id}.ogg"
         else:
             return None, "抱歉，我目前只支持照片、文档、视频、音频和语音消息。"
@@ -649,8 +649,9 @@ async def create_and_append_to_notion_page(
         # 获取文件大小
         file_size = os.path.getsize(file_path)
         logging.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
-        if file_size > 20 * 1024 * 1024:  # 20MB
-            raise ValueError("文件大小超过20MB限制，不允许上传。")
+        # 接口不作限制
+        # if file_size > 20 * 1024 * 1024:  # 20MB
+        #     raise ValueError("文件大小超过20MB限制，不允许上传。")
 
         logging.info(f"Uploading file {effective_file_name} to Notion...")
         # Step 1: Create file upload object in Notion，传递文件大小以决定是否使用多部分上传
@@ -720,7 +721,7 @@ async def api_upload(request: Request, title: str = Form(...), content: Optional
             logging.info(f"File saved temporarily: {file_path}")
 
         # Call the unified upload_as_block function
-        await create_and_append_to_notion_page(
+        page_id = await create_and_append_to_notion_page(
             title=title,
             notion_config=NOTION_CONFIG,
             content=content, # Pass content even if file is present, upload_as_block handles it
