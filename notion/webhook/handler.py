@@ -6,7 +6,7 @@ from starlette.responses import JSONResponse
 from ..api.client import NotionClient
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
-
+from ..routes import get_route
 
 from logger import setup_logger
 # 配置日志
@@ -15,7 +15,7 @@ logger = setup_logger(__name__)
 # 创建路由
 router = APIRouter()
 
-# @router.post("/webhook")
+@router.post(get_route("api_webhook"))
 async def handle_webhook(request: Request):
     """处理 Notion webhook 请求"""
     try:

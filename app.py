@@ -10,6 +10,7 @@ from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
+from notion.routes import get_route, API_PREFIX
 
 from logger import setup_logger
 # 配置日志
@@ -32,17 +33,17 @@ app.add_middleware(
 )
 
 # 添加路由
-app.include_router(webhook_router, prefix="/api")
-app.include_router(api_router, prefix="/api")
+app.include_router(webhook_router, prefix=API_PREFIX)
+app.include_router(api_router, prefix=API_PREFIX)
 
 # API 路由
-@app.get("/")
+@app.get(get_route("root"))
 async def root():
     """根路由"""
     return PlainTextResponse("Notion Bot API Service")
 
-@app.get("/healthz")
-@app.head("/healthz")
+@app.get(get_route("health_check"))
+@app.head(get_route("health_check"))
 async def health_check():
     """健康检查路由，用于 UptimeRobot 监控"""
     try:
@@ -99,7 +100,7 @@ async def startup_event():
         application = setup_bot()
         
         # 设置 webhook
-        webhook_url = f"{WEBHOOK_URL}/{WEBHOOK_PATH}"
+        webhook_url = f"{WEBHOOK_URL}/{get_route('api_telegram_webhook')}"
         logger.info(f"Setting webhook URL: {webhook_url}")
         
         # 初始化机器人
