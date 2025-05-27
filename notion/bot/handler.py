@@ -10,6 +10,7 @@ from ..core.buffer import MessageBuffer
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 import config
+from ..routes import get_route
 
 from common_utils import is_user_authorized
 
