@@ -6,13 +6,13 @@ import tempfile
 import asyncio
 from urllib.request import Request
 from collections import defaultdict
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Union
 
 from fastapi import UploadFile, HTTPException, Form
 from starlette.responses import JSONResponse
 from telegram import Update, Message
 from telegram.ext import ContextTypes
-from typing import Tuple, List, Dict, Optional
+from telegram._utils.types import FileInput
 
 from common_utils import verify_signature
 from config import *
@@ -25,29 +25,111 @@ from bot_setup import is_user_authorized
 logging.basicConfig(format='%(levelname)s - %(message)s', level=logging.DEBUG)
 logging.getLogger('httpcore.http11').setLevel(logging.ERROR)
 
+class NotionAPIError(Exception):
+    """Notion API 错误基类"""
+    def __init__(self, message: str, status_code: int = None, response_body: str = None):
+        self.message = message
+        self.status_code = status_code
+        self.response_body = response_body
+        super().__init__(self.message)
+
+class NotionFileUploadError(NotionAPIError):
+    """Notion 文件上传错误"""
+    pass
+
+class NotionPageError(NotionAPIError):
+    """Notion 页面操作错误"""
+    pass
+
+class NotionUploader:
+    """
+    Notion上传工具类，封装所有与Notion API交互的方法
+    """
+    def __init__(self, notion_config: dict):
+        self.notion_key = notion_config['NOTION_KEY']
+        self.notion_version = notion_config['NOTION_VERSION']
+        self.parent_page_id = notion_config['PAGE_ID']
+
+    async def create_page(self, title: str, content_text: Optional[str] = None) -> str:
+        """创建Notion页面"""
+        page_id = await create_notion_page(
+            notion_key=self.notion_key,
+            notion_version=self.notion_version,
+            parent_page_id=self.parent_page_id,
+            title=title,
+            content_text=content_text
+        )
+        return page_id
+
+    async def append_text(self, page_id: str, content_text: str) -> None:
+        """添加文本块到页面"""
+        await append_block_to_notion_page(
+            notion_key=self.notion_key,
+            notion_version=self.notion_version,
+            page_id=page_id,
+            content_text=content_text
+        )
+
+    async def append_file(self, page_id: str, file_path: str, file_name: str, content_type: str) -> None:
+        """添加文件块到页面"""
+        file_size = os.path.getsize(file_path)
+        
+        # 创建文件上传对象
+        file_upload_id, upload_url, number_of_parts, mode = await create_file_upload(
+            self.notion_key,
+            self.notion_version,
+            file_name,
+            content_type,
+            file_size
+        )
+        
+        # 上传文件
+        uploaded_file_id = await upload_file_to_notion(
+            self.notion_key,
+            self.notion_version,
+            file_path,
+            file_upload_id,
+            upload_url,
+            content_type,
+            mode,
+            number_of_parts
+        )
+        
+        # 添加文件块到页面
+        await append_block_to_notion_page(
+            self.notion_key,
+            self.notion_version,
+            page_id,
+            file_upload_id=uploaded_file_id,
+            file_name=file_name,
+            file_mime_type=content_type
+        )
+
 class MessageBuffer:
     """
     消息缓冲区管理器，用于管理用户消息的合并和延迟发送。
     """
     def __init__(self, buffer_timeout: int = 30):
-        self.buffer_timeout = buffer_timeout  # 缓冲区超时时间（秒）
+        self.buffer_timeout = buffer_timeout
         self.buffers: Dict[int, Dict] = defaultdict(lambda: {
             'page_id': None,
-            'messages': [],  # 用于存储所有消息
             'task': None,
             'first_reply_sent': False,
-            'media_group_id': None,  # 添加媒体组ID跟踪
-            'media_group_messages': {},  # 用于跟踪媒体组消息
-            'last_message': None  # 用于存储最后一条消息
+            'media_group_id': None,
+            'media_group_messages': {},
+            'last_message': None,
+            'uploader': None
         })
         self.lock = asyncio.Lock()
 
     async def add_message(self, user_id: int, message: Message, notion_config: dict) -> Optional[str]:
-        """
-        添加消息到缓冲区，如果是第一条消息则创建新页面并返回页面URL。
-        """
+        """添加消息到缓冲区，如果是第一条消息则创建新页面并返回页面URL"""
         async with self.lock:
             buffer = self.buffers[user_id]
+            
+            # 初始化NotionUploader
+            if not buffer['uploader']:
+                buffer['uploader'] = NotionUploader(notion_config)
             
             # 如果是第一条消息，创建新页面并立即处理
             if not buffer['page_id']:
@@ -56,19 +138,14 @@ class MessageBuffer:
                 title = f"Telegram消息 {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}"
                 
                 # 创建新页面
-                page_id = await create_notion_page(
-                    notion_key=notion_config['NOTION_KEY'],
-                    notion_version=notion_config['NOTION_VERSION'],
-                    parent_page_id=notion_config['PAGE_ID'],
-                    title=title
-                )
+                page_id = await buffer['uploader'].create_page(title)
                 buffer['page_id'] = page_id
                 
                 # 立即处理第一条消息
-                await self._process_single_message(message, page_id, notion_config)
+                await self._process_single_message(message, buffer)
                 
                 # 启动超时任务
-                buffer['task'] = asyncio.create_task(self._process_buffer(user_id, notion_config))
+                buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
                 
                 # 返回页面URL
                 return f"https://www.notion.so/{page_id.replace('-', '')}"
@@ -76,18 +153,16 @@ class MessageBuffer:
             # 检查是否是媒体组消息
             if message.media_group_id:
                 if buffer['media_group_id'] != message.media_group_id:
-                    # 新的媒体组
                     buffer['media_group_id'] = message.media_group_id
                     buffer['media_group_messages'] = {message.message_id: message}
                 else:
-                    # 同一媒体组的消息
                     buffer['media_group_messages'][message.message_id] = message
                 
                 # 立即处理当前消息
-                await self._process_single_message(message, buffer['page_id'], notion_config)
+                await self._process_single_message(message, buffer)
             else:
                 # 非媒体组消息，立即处理
-                await self._process_single_message(message, buffer['page_id'], notion_config)
+                await self._process_single_message(message, buffer)
             
             # 更新最后一条消息
             buffer['last_message'] = message
@@ -95,32 +170,106 @@ class MessageBuffer:
             # 重置缓冲区任务
             if buffer['task']:
                 buffer['task'].cancel()
-            buffer['task'] = asyncio.create_task(self._process_buffer(user_id, notion_config))
+            buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
             
             return None
 
-    async def _process_single_message(self, message: Message, page_id: str, notion_config: dict):
-        """
-        处理单条消息并添加到页面。
-        """
+    async def _process_single_message(self, message: Message, buffer: Dict) -> None:
+        """处理单条消息并添加到页面"""
         try:
             if message.text:
-                await append_block_to_notion_page(
-                    notion_key=notion_config['NOTION_KEY'],
-                    notion_version=notion_config['NOTION_VERSION'],
-                    page_id=page_id,
-                    content_text=message.text
-                )
+                await buffer['uploader'].append_text(buffer['page_id'], message.text)
             elif message.effective_attachment:
-                await self._process_file_message(message, page_id, notion_config)
+                await self._process_file_message(message, buffer)
         except Exception as e:
             logging.error(f"Error processing single message: {e}", exc_info=True)
             raise
 
-    async def _process_buffer(self, user_id: int, notion_config: dict):
-        """
-        处理缓冲区中的消息。
-        """
+    async def _process_file_message(self, message: Message, buffer: Dict) -> None:
+        """处理文件消息并添加到页面"""
+        file_obj = None
+        file_extension = ''
+        content_type = ''
+        file_name_for_notion = ''
+        temp_file_path = None
+
+        try:
+            # 获取文件对象和相关信息
+            file_info = await self._get_file_info(message)
+            if not file_info:
+                return
+                
+            file_obj, file_extension, content_type, file_name_for_notion = file_info
+            
+            # 下载文件
+            temp_file_path = f"/tmp/{file_obj.file_id}.{file_extension}"
+            await file_obj.download_to_drive(temp_file_path)
+            
+            try:
+                # 上传到Notion
+                await buffer['uploader'].append_file(
+                    buffer['page_id'],
+                    temp_file_path,
+                    file_name_for_notion,
+                    content_type
+                )
+            except NotionFileUploadError as e:
+                error_msg = f"文件上传到 Notion 失败: {e.message}"
+                if e.status_code == 400:
+                    error_msg = "Notion 不支持此类型的文件或文件格式不正确"
+                elif e.status_code == 413:
+                    error_msg = "文件太大，超过 Notion 的限制"
+                elif e.status_code == 401:
+                    error_msg = "Notion API 密钥无效或已过期"
+                elif e.status_code == 403:
+                    error_msg = "没有权限上传文件到 Notion"
+                raise NotionFileUploadError(error_msg)
+            
+            # 如果有说明文字，添加为文本块
+            if message.caption:
+                await buffer['uploader'].append_text(buffer['page_id'], message.caption)
+                
+        except NotionFileUploadError as e:
+            # 重新抛出 NotionFileUploadError，让上层处理
+            raise
+        except Exception as e:
+            logging.error(f"处理文件消息时发生错误: {e}", exc_info=True)
+            raise NotionFileUploadError(f"处理文件时发生错误: {str(e)}")
+        finally:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+    async def _get_file_info(self, message: Message) -> Optional[Tuple[FileInput, str, str, str]]:
+        """获取文件信息"""
+        if message.photo:
+            file_obj = message.photo[-1]
+            file_obj = await file_obj.get_file()
+            return file_obj, 'jpg', 'image/jpeg', f"telegram_photo_{file_obj.file_id}.jpg"
+        elif message.document:
+            file_obj = message.document
+            file_name = file_obj.file_name
+            file_obj = await file_obj.get_file()
+            file_extension = file_name.split('.')[-1] if file_name and '.' in file_name else 'file'
+            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
+            return file_obj, file_extension, content_type, file_name
+        elif message.video:
+            file_obj = message.video
+            file_obj = await file_obj.get_file()
+            return file_obj, 'mp4', getattr(file_obj, 'mime_type', None) or 'video/mp4', f"telegram_video_{file_obj.file_id}.mp4"
+        elif message.audio:
+            file_obj = message.audio
+            file_obj = await file_obj.get_file()
+            file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
+            content_type = getattr(file_obj, 'mime_type', None) or 'audio/mpeg'
+            return file_obj, file_extension, content_type, file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
+        elif message.voice:
+            file_obj = message.voice
+            file_obj = await file_obj.get_file()
+            return file_obj, 'ogg', getattr(file_obj, 'mime_type', None) or 'audio/ogg', f"telegram_voice_{file_obj.file_id}.ogg"
+        return None
+
+    async def _process_buffer(self, user_id: int) -> None:
+        """处理缓冲区超时"""
         try:
             await asyncio.sleep(self.buffer_timeout)
             
@@ -130,7 +279,9 @@ class MessageBuffer:
                 # 发送完结通知
                 if buffer['first_reply_sent'] and buffer['last_message']:
                     try:
-                        await buffer['last_message'].reply_text(f"所有消息已处理完成，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}")
+                        await buffer['last_message'].reply_text(
+                            f"所有消息已处理完成，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}"
+                        )
                     except Exception as e:
                         logging.error(f"Error sending completion message: {e}", exc_info=True)
                 
@@ -138,111 +289,50 @@ class MessageBuffer:
                 del self.buffers[user_id]
                 
         except asyncio.CancelledError:
-            # 任务被取消，不做任何处理
             pass
         except Exception as e:
             logging.error(f"Error in buffer processing: {e}", exc_info=True)
-            # 确保清理缓冲区
             async with self.lock:
                 if user_id in self.buffers:
                     del self.buffers[user_id]
 
-    async def _process_file_message(self, message: Message, page_id: str, notion_config: dict):
-        """
-        处理文件消息并添加到指定页面。
-        """
-        file_obj = None
-        file_extension = ''
-        content_type = ''
-        file_name_for_notion = ''
-        temp_file_path = None
-
-        try:
-            if message.photo:
-                file_obj = message.photo[-1]  # 使用最大尺寸的照片
-                file_obj = await file_obj.get_file()
-                file_extension = 'jpg'
-                content_type = 'image/jpeg'
-                file_name_for_notion = f"telegram_photo_{file_obj.file_id}.jpg"
-            elif message.document:
-                file_obj = message.document
-                file_name = file_obj.file_name
-                file_obj = await file_obj.get_file()
-                file_extension = file_name.split('.')[-1] if file_name and '.' in file_name else 'file'
-                content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
-                file_name_for_notion = file_name
-            elif message.video:
-                file_obj = message.video
-                file_obj = await file_obj.get_file()
-                file_extension = 'mp4'
-                content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(getattr(file_obj, 'file_name', ''))[0] or 'video/mp4'
-                file_name_for_notion = f"telegram_video_{file_obj.file_id}.mp4"
-            elif message.audio:
-                file_obj = message.audio
-                file_obj = await file_obj.get_file()
-                file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
-                content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(getattr(file_obj, 'file_name', ''))[0] or 'audio/mpeg'
-                file_name_for_notion = file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
-            elif message.voice:
-                file_obj = message.voice
-                file_obj = await file_obj.get_file()
-                file_extension = 'ogg'
-                content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(file_obj.file_name)[0] or 'audio/ogg'
-                file_name_for_notion = f"telegram_voice_{file_obj.file_id}.ogg"
-            else:
-                return
-
-            if file_obj:
-                temp_file_path = f"/tmp/{file_obj.file_id}.{file_extension}"
-                await file_obj.download_to_drive(temp_file_path)
-                
-                file_size = os.path.getsize(temp_file_path)
-                
-                # 创建文件上传对象
-                file_upload_id, upload_url, number_of_parts, mode = await create_file_upload(
-                    notion_config['NOTION_KEY'],
-                    notion_config['NOTION_VERSION'],
-                    file_name_for_notion,
-                    content_type,
-                    file_size
-                )
-                
-                # 上传文件
-                uploaded_file_id = await upload_file_to_notion(
-                    notion_config['NOTION_KEY'],
-                    notion_config['NOTION_VERSION'],
-                    temp_file_path,
-                    file_upload_id,
-                    upload_url,
-                    content_type,
-                    mode,
-                    number_of_parts
-                )
-                
-                # 添加文件块到页面
-                await append_block_to_notion_page(
-                    notion_config['NOTION_KEY'],
-                    notion_config['NOTION_VERSION'],
-                    page_id,
-                    file_upload_id=uploaded_file_id,
-                    file_name=file_name_for_notion,
-                    file_mime_type=content_type
-                )
-                
-                # 如果有说明文字，添加为文本块
-                if message.caption:
-                    await append_block_to_notion_page(
-                        notion_config['NOTION_KEY'],
-                        notion_config['NOTION_VERSION'],
-                        page_id,
-                        content_text=message.caption
-                    )
-        finally:
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
 # 创建全局消息缓冲区实例
 message_buffer = MessageBuffer()
+
+async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE, notion_config: dict) -> None:
+    """处理所有消息，包括识别媒体组、文本消息和单个文件消息"""
+    message = update.message
+    if not message:
+        logging.warning("Received an update without a message object.")
+        return
+
+    if not is_user_authorized(update.effective_user.id):
+        await message.reply_text("您没有权限使用此功能。")
+        logging.warning(f"Unauthorized user attempted to use the bot: {update.effective_user.username}, {update.effective_user.id}, Message: {message.text}")
+        return
+
+    try:
+        # 将消息添加到缓冲区
+        page_url = await message_buffer.add_message(update.effective_user.id, message, notion_config)
+        
+        # 如果是第一条消息，发送页面URL
+        if page_url:
+            await message.reply_text(f"您的消息已保存到Notion页面：{page_url}")
+            # 标记第一条回复已发送
+            message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
+            
+    except NotionFileUploadError as e:
+        error_msg = str(e)
+        logging.error(f"文件上传错误: {error_msg}")
+        await message.reply_text(f"❌ {error_msg}")
+    except NotionPageError as e:
+        error_msg = str(e)
+        logging.error(f"Notion页面操作错误: {error_msg}")
+        await message.reply_text(f"❌ {error_msg}")
+    except Exception as e:
+        error_msg = f"处理消息时发生错误: {str(e)}"
+        logging.exception(error_msg)
+        await message.reply_text(f"❌ {error_msg}")
 
 # === 配置 Notion 参数 ===
 NOTION_CONFIG = {
@@ -261,8 +351,6 @@ async def _make_notion_api_request(url: str, notion_key: str, notion_version: st
         "Notion-Version": notion_version,
         "Content-Type": "multipart/form-data"
     }
-    # Only set Content-Type header for JSON payloads if data is not present
-    # aiohttp.FormData handles its own Content-Type for file uploads
     if content_type and not data:
         headers["Content-Type"] = content_type
 
@@ -270,24 +358,55 @@ async def _make_notion_api_request(url: str, notion_key: str, notion_version: st
         try:
             if method == 'POST':
                 async with session.post(url, json=payload, headers=headers, data=data) as response:
-                    response.raise_for_status()
-                    return await response.json()
+                    try:
+                        response.raise_for_status()
+                        return await response.json()
+                    except aiohttp.ClientResponseError as e:
+                        response_body = await response.text()
+                        if 'file_uploads' in url:
+                            raise NotionFileUploadError(
+                                f"Notion 文件上传失败: {e.message}",
+                                status_code=e.status,
+                                response_body=response_body
+                            )
+                        else:
+                            raise NotionPageError(
+                                f"Notion 页面操作失败: {e.message}",
+                                status_code=e.status,
+                                response_body=response_body
+                            )
             elif method == 'PATCH':
                 async with session.patch(url, json=payload, headers=headers) as response:
-                    response.raise_for_status()
-                    return await response.json()
+                    try:
+                        response.raise_for_status()
+                        return await response.json()
+                    except aiohttp.ClientResponseError as e:
+                        response_body = await response.text()
+                        raise NotionPageError(
+                            f"Notion 页面更新失败: {e.message}",
+                            status_code=e.status,
+                            response_body=response_body
+                        )
             elif method == 'GET':
                 async with session.get(url, headers=headers) as response:
-                    response.raise_for_status()
-                    return await response.json()
+                    try:
+                        response.raise_for_status()
+                        return await response.json()
+                    except aiohttp.ClientResponseError as e:
+                        response_body = await response.text()
+                        raise NotionPageError(
+                            f"Notion 页面获取失败: {e.message}",
+                            status_code=e.status,
+                            response_body=response_body
+                        )
             else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
+                raise ValueError(f"不支持的 HTTP 方法: {method}")
         except aiohttp.ClientError as e:
-            logging.error(f"Notion API request failed for {url} with error: {e}", exc_info=True)
-            raise # Re-raise the exception after logging
+            logging.error(f"Notion API 请求失败 {url}: {e}", exc_info=True)
+            raise NotionAPIError(f"Notion API 请求失败: {str(e)}")
         except Exception as e:
-            logging.error(f"An unexpected error occurred during Notion API request to {url}: {e}", exc_info=True)
-            raise # Re-raise the exception after logging
+            logging.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
+            raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
 
 
 async def create_file_upload(notion_key: str, notion_version: str, file_name: str, content_type: str, file_size: int = None) -> Tuple[str, str, Optional[int], Optional[str]]:
@@ -318,7 +437,7 @@ async def create_file_upload(notion_key: str, notion_version: str, file_name: st
         }
         logging.debug(f"Using multi-part upload mode with {number_of_parts} parts for file size {file_size}")
     
-    response_json = await _make_notion_api_request(url, notion_key, notion_version, method='POST', payload=payload)
+    response_json = await _make_notion_api_request(url, notion_key, notion_version, method='PATCH', payload=payload, content_type='application/json')
     logging.debug(f"Successfully created file upload object: ID={response_json['id']}, Upload URL={response_json['upload_url']}")
     return response_json['id'], response_json['upload_url'], number_of_parts, mode
 
@@ -625,7 +744,7 @@ async def _process_file_message(message, notion_config):
             await _check_file_size(file_obj)
             file_obj = await file_obj.get_file()
             file_extension = file_obj.file_name.split('.')[-1] if file_obj.file_name and '.' in file_obj.file_name else 'mp3'
-            content_type = getattr(file_obj, 'mime_type', None) or mimetypes.guess_type(getattr(file_obj, 'file_name', ''))[0] or 'audio/mpeg'
+            content_type = getattr(file_obj, 'mime_type', None) or 'audio/mpeg'
             file_name_for_notion = file_obj.file_name or f"telegram_audio_{file_obj.file_id}.mp3"
         elif message.voice:
             file_obj = message.voice
@@ -710,36 +829,6 @@ async def _process_file_message(message, notion_config):
             logging.info(f"Cleaning up temporary file: {temp_file_path}")
             os.remove(temp_file_path)
             logging.info("Temporary file removed.")
-
-
-async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE, notion_config: dict) -> None:
-    """
-    处理所有消息，包括识别媒体组、文本消息和单个文件消息。
-    使用消息缓冲区来合并同一用户的连续消息。
-    """
-    message = update.message
-    if not message:
-        logging.warning("Received an update without a message object.")
-        return
-
-    if not is_user_authorized(update.effective_user.id):
-        await message.reply_text("您没有权限使用此功能。")
-        logging.warning(f"Unauthorized user attempted to use the bot: {update.effective_user.username}, {update.effective_user.id}, Message: {message.text}")
-        return
-
-    try:
-        # 将消息添加到缓冲区
-        page_url = await message_buffer.add_message(update.effective_user.id, message, notion_config)
-        
-        # 如果是第一条消息，发送页面URL
-        if page_url:
-            await message.reply_text(f"您的消息已保存到Notion页面：{page_url}")
-            # 标记第一条回复已发送
-            message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
-            
-    except Exception as e:
-        logging.exception("Error handling message:")
-        await message.reply_text(f"处理您的消息时发生错误：{type(e).__name__}")
 
 
 async def download_file_from_url(file_url: str, temp_dir: str = "/tmp") -> str:
