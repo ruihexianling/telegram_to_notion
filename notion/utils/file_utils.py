@@ -1,11 +1,14 @@
 """文件处理工具模块"""
 import os
 import shutil
-import logging
+
 import mimetypes
 import datetime
 from typing import Tuple, Optional
 from fastapi import UploadFile
+from logger import setup_logger
+# 配置日志
+logger = setup_logger(__name__)
 
 async def save_upload_file_temporarily(
     file: UploadFile,
@@ -28,13 +31,13 @@ async def save_upload_file_temporarily(
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        logging.info(f"Temporary file saved at {file_path}")
+        logger.info(f"Temporary file saved at {file_path}")
         return file_path, file_name, content_type
     except Exception as e:
-        logging.error(f"Error saving uploaded file {file_name} temporarily: {e}", exc_info=True)
+        logger.error(f"Error saving uploaded file {file_name} temporarily: {e}", exc_info=True)
         if os.path.exists(file_path):
             os.remove(file_path)
-            logging.info(f"Cleaned up partial temporary file {file_path} after error.")
+            logger.info(f"Cleaned up partial temporary file {file_path} after error.")
         raise
 
 def get_file_info(file_path: str) -> Tuple[str, str, str]:
@@ -52,15 +55,15 @@ def cleanup_temp_file(file_path: str) -> None:
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
-            logging.info(f"Cleaned up temporary file: {file_path}")
+            logger.info(f"Cleaned up temporary file: {file_path}")
         except Exception as e:
-            logging.error(f"Error cleaning up temporary file {file_path}: {e}", exc_info=True)
+            logger.error(f"Error cleaning up temporary file {file_path}: {e}", exc_info=True)
 
 def cleanup_temp_dir(temp_dir: str) -> None:
     """清理临时目录"""
     if os.path.exists(temp_dir):
         try:
             shutil.rmtree(temp_dir)
-            logging.info(f"Cleaned up temporary directory: {temp_dir}")
+            logger.info(f"Cleaned up temporary directory: {temp_dir}")
         except Exception as e:
-            logging.error(f"Error cleaning up temporary directory {temp_dir}: {e}", exc_info=True) 
+            logger.error(f"Error cleaning up temporary directory {temp_dir}: {e}", exc_info=True) 

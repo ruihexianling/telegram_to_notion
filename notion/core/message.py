@@ -5,8 +5,11 @@ from datetime import datetime
 import pytz
 import os
 import tempfile
-import logging
 from telegram import Bot
+
+from logger import setup_logger
+# 配置日志
+logger = setup_logger(__name__)
 
 @dataclass
 class Message:
@@ -70,7 +73,7 @@ class Message:
                 await file_obj.download_to_drive(file_path)
                 msg.file_path = file_path
             except Exception as e:
-                logging.error(f"Error downloading file: {e}", exc_info=True)
+                logger.error(f"Error downloading file: {e}", exc_info=True)
                 if os.path.exists(file_path):
                     os.remove(file_path)
                 raise

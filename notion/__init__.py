@@ -11,7 +11,8 @@ from .utils.file_utils import (
     cleanup_temp_file,
     cleanup_temp_dir
 )
-from .utils.logger import setup_logger, logger
+from logger import setup_logger
+
 
 __all__ = [
     'NotionClient',

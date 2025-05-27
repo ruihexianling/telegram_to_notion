@@ -7,12 +7,12 @@ from ..api.client import NotionClient
 from ..core.buffer import MessageBuffer
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
-from ..utils.logger import setup_logger
 import config
 
 
 from common_utils import is_user_authorized
 
+from logger import setup_logger
 # 配置日志
 logger = setup_logger(__name__)
 
@@ -32,6 +32,15 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not message:
         logger.warning("Received an update without a message object")
         return
+    
+    logger.info(
+        "Received a message",
+        extra={
+            'username': update.effective_user.username,
+            'user_id': update.effective_user.id,
+            'text_content': message.text
+        }
+    )
 
     if not is_user_authorized(update.effective_user.id):
         await message.reply_text("您没有权限使用此功能")
@@ -40,14 +49,23 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             extra={
                 'username': update.effective_user.username,
                 'user_id': update.effective_user.id,
-                'message': message.text
+                'text_content': message.text
             }
         )
         return
 
+
     try:
         # 创建 Notion 客户端和上传器
         # config = NotionConfig(notion_config)  # 使用传入的配置
+        logger.debug(
+            "Notion client and uploader created",
+            extra={
+                'username': update.effective_user.username,
+                'user_id': update.effective_user.id,
+                'text_content': message.text
+            }
+        )
         async with NotionClient(notion_config) as client:
             uploader = NotionUploader(client)
             

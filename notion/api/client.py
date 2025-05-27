@@ -1,9 +1,11 @@
 """Notion API 客户端"""
-import logging
+import logger
 import aiohttp
 from typing import Dict, Optional, Any, Tuple
 from .exceptions import NotionAPIError, NotionFileUploadError, NotionPageError
 from ..utils.config import NotionConfig
+from logger import setup_logger
+logger = setup_logger(__name__)
 
 class NotionClient:
     """Notion API 客户端类"""
@@ -66,10 +68,10 @@ class NotionClient:
             else:
                 raise ValueError(f"不支持的 HTTP 方法: {method}")
         except aiohttp.ClientError as e:
-            logging.error(f"Notion API 请求失败 {url}: {e}", exc_info=True)
+            logger.error(f"Notion API 请求失败 {url}: {e}", exc_info=True)
             raise NotionAPIError(f"Notion API 请求失败: {str(e)}")
         except Exception as e:
-            logging.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
+            logger.error(f"Notion API 请求发生意外错误 {url}: {e}", exc_info=True)
             raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
 
     async def _handle_response(self, response: aiohttp.ClientResponse, url: str) -> Dict[str, Any]:

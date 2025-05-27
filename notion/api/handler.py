@@ -9,12 +9,11 @@ from .client import NotionClient
 from ..core.message import Message
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
-from ..utils.logger import setup_logger
 from ..utils.file_utils import save_upload_file_temporarily, cleanup_temp_dir
 from common_utils import verify_signature
-
+from logger import setup_logger
 # 配置日志
-logger = setup_logger('notion.api')
+logger = setup_logger(__name__)
 
 # 创建路由
 router = APIRouter()

@@ -1,6 +1,5 @@
 """上传服务模块"""
 import os
-import logging
 import asyncio
 from typing import Optional, Dict, Any
 
@@ -10,6 +9,9 @@ from ..api.client import NotionClient
 from ..api.exceptions import NotionFileUploadError
 from ..core.message import Message
 from ..utils.file_utils import get_file_info, cleanup_temp_file
+from logger import setup_logger
+# 配置日志
+logger = setup_logger(__name__)
 
 class NotionUploader:
     """Notion 上传服务类"""
@@ -56,7 +58,7 @@ class NotionUploader:
 
             return page_id
         except Exception as e:
-            logging.error(f"Error uploading message to Notion: {e}", exc_info=True)
+            logger.error(f"Error uploading message to Notion: {e}", exc_info=True)
             raise
 
     async def _handle_file_upload(self, page_id: str, message: Message) -> None:
@@ -75,7 +77,7 @@ class NotionUploader:
 
         # 获取文件大小
         file_size = os.path.getsize(message.file_path)
-        logging.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
+        logger.info(f"File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
 
         try:
             # 创建文件上传对象
@@ -110,7 +112,7 @@ class NotionUploader:
             )
 
         except Exception as e:
-            logging.error(f"Error handling file upload: {e}", exc_info=True)
+            logger.error(f"Error handling file upload: {e}", exc_info=True)
             raise NotionFileUploadError(f"文件上传失败: {str(e)}")
 
     async def _upload_single_part_file(

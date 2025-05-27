@@ -6,13 +6,13 @@ from fastapi.responses import PlainTextResponse
 from telegram.ext import Application
 
 from config import *
-from notion.utils.logger import setup_logger
 from notion.bot.setup import setup_bot
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
 
+from logger import setup_logger
 # 配置日志
-logger = setup_logger('app')
+logger = setup_logger(__name__)
 
 # 初始化 FastAPI 应用
 app = FastAPI(
@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 # 添加路由
-app.include_router(webhook_router, prefix="/api")
+# app.include_router(webhook_router, prefix="/api")
 app.include_router(api_router, prefix="/api")
 
 # API 路由

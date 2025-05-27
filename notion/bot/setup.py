@@ -1,13 +1,24 @@
 """Telegram Bot 设置模块"""
 from telegram import Update, BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-from ..utils.logger import setup_logger
+
 from .handler import handle_any_message
 from common_utils import is_user_authorized
 from config import *
+from logger import setup_logger
 # 配置日志
-logger = setup_logger('notion.bot')
+logger = setup_logger(__name__)
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a message to the user."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text("发生了一个错误，请稍后再试。")
+    except Exception as e:
+        logger.error(f"Failed to send error message to user: {e}")
 
 # === 配置 Notion 参数 ===
 NOTION_CONFIG = {
@@ -66,6 +77,7 @@ def setup_bot() -> Application:
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(MessageHandler(filters.ALL, lambda update, context: handle_any_message(update, context)))
+        application.add_error_handler(error_handler)
         
         logger.info("Bot setup completed successfully")
         return application
