@@ -92,20 +92,14 @@ async def start(update: Update, context) -> None:
     logger.debug(
         f"Received /start command - username: {user.username} - user_id: {user.id}"
     )
-    
-    if is_auth_user(user.id):
-        await update.message.reply_text(
-            f"欢迎使用 Notion 机器人，{user.first_name}！\n"
-            "您可以直接发送消息，我会将它们保存到 Notion 中。"
-        )
-        logger.info(
-            f"Authorized user started the bot - username: {user.username} - user_id: {user.id}"
-        )
-    else:
-        await update.message.reply_text("抱歉，您没有权限使用此机器人。")
-        logger.warning(
-            f"Unauthorized user attempted to start the bot - username: {user.username} - user_id: {user.id}"
-        )
+
+    await update.message.reply_text(
+        f"欢迎使用 Notion 机器人，{user.first_name}！\n"
+        "您可以直接发送消息，我会将它们保存到 Notion 中。"
+    )
+    logger.info(
+        f"Start information sent to user - username: {user.username} - user_id: {user.id}"
+    )
 
 @auth_required
 async def help_command(update: Update, context) -> None:

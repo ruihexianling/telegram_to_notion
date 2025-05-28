@@ -1,5 +1,7 @@
 from urllib.request import Request
 from functools import wraps
+from fastapi import HTTPException
+
 from telegram import Update
 from telegram.ext import CallbackContext
 
@@ -24,23 +26,66 @@ def is_auth_user(user_id: int) -> bool:
 # 装饰器：仅管理员可执行
 def admin_required(func):
     @wraps(func)
-    def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-        user_id = update.effective_user.id
+    async def wrapper(*args, **kwargs):
+        # 检查是否是 Telegram 机器人命令
+        update = next((arg for arg in args if isinstance(arg, Update)), None)
+        if update:
+            user_id = update.effective_user.id
+            if not is_admin(user_id):
+                await update.message.reply_text(
+                    "⚠️ 抱歉，此命令仅限管理员使用。\n"
+                    "如果您需要管理员权限，请联系系统管理员。"
+                )
+                logger.warning(f"非管理员用户尝试访问管理员接口{func.__name__} - user_id: {user_id} - 用户名: {update.effective_user.username}")
+                return
+            return await func(*args, **kwargs)
+            
+        # API 接口权限验证
+        request = next((arg for arg in args if isinstance(arg, Request)), None)
+        if not request:
+            raise HTTPException(status_code=400, detail="无法获取请求对象")
+            
+        user_id = request.state.user_id if hasattr(request.state, 'user_id') else None
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未获取到用户ID")
+            
         if not is_admin(user_id):
-            update.message.reply_text("❌ 你没有权限执行此命令。")
-            logger.warning(f"Non admin user attempted to access - username: {user.username} - user_id: {user.id}")
-            return
-        return func(update, context, *args, **kwargs)
-    return wrapped
+            logger.warning(f"非管理员用户尝试访问管理员接口{func.__name__} - user_id: {user_id} - 用户名: {request.effective_user.username}")
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+            
+        return await func(*args, **kwargs)
+    return wrapper
 
 # 装饰器：授权用户可执行
 def auth_required(func):
     @wraps(func)
-    def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-        user_id = update.effective_user.id
+    async def wrapper(*args, **kwargs):
+        # 检查是否是 Telegram 机器人命令
+        update = next((arg for arg in args if isinstance(arg, Update)), None)
+        if update:
+            user_id = update.effective_user.id
+            if not is_auth_user(user_id):
+                await update.message.reply_text(
+                    "⚠️ 抱歉，您没有使用此功能的权限。\n"
+                    "如果您需要使用此功能，请联系系统管理员获取授权。"
+                )
+                logger.warning(f"未授权用户尝试访问接口{func.__name__} - user_id: {user_id} - 用户名: {update.effective_user.username}")
+                return
+            return await func(*args, **kwargs)
+            
+        # API 接口权限验证
+        request = next((arg for arg in args if isinstance(arg, Request)), None)
+        if not request:
+            raise HTTPException(status_code=400, detail="无法获取请求对象")
+            
+        user_id = request.state.user_id if hasattr(request.state, 'user_id') else None
+        if not user_id:
+            raise HTTPException(status_code=401, detail="未获取到用户ID")
+            
         if not is_auth_user(user_id):
-            update.message.reply_text("❌ 你没有权限执行此命令。")
-            logger.warning(f"Unauthorized user attempted to access - username: {user.username} - user_id: {user.id}")
-            return
-        return func(update, context, *args, **kwargs)
-    return wrapped 
+            logger.warning(f"未授权用户尝试访问接口{func.__name__} - user_id: {user_id} - 用户名: {update.effective_user.username}")
+            raise HTTPException(status_code=403, detail="需要授权用户权限")
+            
+        return await func(*args, **kwargs)
+    return wrapper
+    
