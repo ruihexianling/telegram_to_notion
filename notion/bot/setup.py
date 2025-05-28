@@ -170,6 +170,17 @@ async def setup_commands(application) -> Application:
     logger.info("Bot commands setup completed")
     return application
 
+async def after_bot_start(application: Application):
+    """机器人上线后，给所有管理员发送消息"""
+    logger.debug("Sending startup message to admin users")
+    for admin_id in ADMIN_USERS:
+        try:
+            await application.bot.send_message(chat_id=admin_id, text="🤖 机器人已上线！")
+            logger.info(f"Startup message sent to admin: {admin_id}")
+        except Exception as e:
+            logger.error(f"Failed to send startup message to admin {admin_id}: {e}")
+    logger.info("Startup messages sent to all admins")
+
 def setup_bot() -> Application:
     """设置机器人"""
     try:

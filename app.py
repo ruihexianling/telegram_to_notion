@@ -6,7 +6,8 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from telegram.ext import Application
 
 from config import *
-from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook
+from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start
+from config import ADMIN_USERS
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
 from notion.bot.handler import router as bot_router, set_application
@@ -89,6 +90,9 @@ async def startup_event():
         
         # 设置命令
         application = await setup_commands(application)
+
+        # Send startup message to admin users
+        await after_bot_start(application)
         
         logger.info("Bot started successfully with webhook")
         
