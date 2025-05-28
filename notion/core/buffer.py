@@ -22,7 +22,10 @@ class MessageBuffer:
             'media_group_messages': {},
             'last_message': None,
             'uploader': None,
-            'has_error': False
+            'has_error': False,
+            'file_count': 0,  # 文件计数器
+            'text_count': 0,  # 文本消息计数器
+            'first_bot_message': None  # 第一条 bot 消息的引用
         })
         self.lock = asyncio.Lock()
 
@@ -45,6 +48,13 @@ class MessageBuffer:
                     page_id = await uploader.upload_message(notion_message)
                     buffer['page_id'] = page_id
                     buffer['task'] = asyncio.create_task(self._process_buffer(user_id))
+                    
+                    # 统计第一条消息
+                    if notion_message.file_path or notion_message.external_url:
+                        buffer['file_count'] += 1
+                    if notion_message.content:
+                        buffer['text_count'] += 1
+                        
                     return f"https://www.notion.so/{page_id.replace('-', '')}"
                 except Exception as e:
                     logger.error(f"Error creating page or processing first message - user_id: {user_id} - error: {e}", exc_info=True)
@@ -68,6 +78,23 @@ class MessageBuffer:
                     new_uploader = NotionUploader(uploader.client)
                     new_uploader.client.parent_page_id = buffer['page_id']
                     await new_uploader.upload_message(notion_message, append_only=True)
+                    
+                    # 更新消息计数
+                    if notion_message.file_path or notion_message.external_url:
+                        buffer['file_count'] += 1
+                    if notion_message.content:
+                        buffer['text_count'] += 1
+                        
+                    # 更新第一条 bot 消息
+                    if buffer['first_bot_message']:
+                        try:
+                            await buffer['first_bot_message'].edit_text(
+                                f"您的消息已保存到Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}\n"
+                                f"30秒内继续发送的消息将自动追加到该页面\n"
+                                f"当前已上传 {buffer['file_count']} 个文件，{buffer['text_count']} 条文本消息"
+                            )
+                        except Exception as e:
+                            logger.error(f"Error updating first bot message - user_id: {user_id} - error: {e}", exc_info=True)
                 else:
                     await uploader.upload_message(notion_message, append_only=True)
                 buffer['has_error'] = False
@@ -99,7 +126,8 @@ class MessageBuffer:
                     try:
                         error_msg = "（部分文件上传失败）" if buffer.get('has_error', False) else ""
                         await buffer['last_message'].reply_text(
-                            f"所有消息已处理完成{error_msg}，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}"
+                            f"所有消息已处理完成{error_msg}，请查看Notion页面：https://www.notion.so/{buffer['page_id'].replace('-', '')}\n"
+                            f"共上传了 {buffer['file_count']} 个文件，{buffer['text_count']} 条文本消息"
                         )
                     except Exception as e:
                         logger.error(f"Error sending completion message - user_id: {user_id} - error: {e}", exc_info=True)
