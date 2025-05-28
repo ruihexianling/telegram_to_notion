@@ -1,4 +1,5 @@
 """Telegram Bot 设置模块"""
+import traceback
 from urllib import request
 
 import requests
@@ -140,7 +141,7 @@ async def deploy_command(update: Update, context) -> None:
         else:
             await update.message.reply_text(f"❌ 部署请求失败: {response.status_code}")
     except Exception as e:
-        await update.message.reply_text(f"❌ 部署请求出错: {e}")
+        await update.message.reply_text(f"❌ 部署请求出错: {e}\n{traceback.format_exc()}")
 
     logger.info(
         f"Deploy command executed - username: {user.username} - user_id: {user.id}"
