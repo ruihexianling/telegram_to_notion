@@ -5,6 +5,8 @@ from typing import Dict, Optional, Any, Tuple
 from .exceptions import NotionAPIError, NotionFileUploadError, NotionPageError
 from ..utils.config import NotionConfig
 from logger import setup_logger
+import asyncio
+
 logger = setup_logger(__name__)
 
 class NotionClient:
@@ -252,12 +254,19 @@ class NotionClient:
             data.add_field('file', part_data, content_type=content_type)
             data.add_field('part_number', str(part_number))
             
-            await self._make_request(upload_url, method='POST', data=data)
-        
-        logger.debug(
-            f"File part uploaded successfully - part_number: {part_number} - "
-            f"content_type: {content_type}"
-        )
+            try:
+                await self._make_request(upload_url, method='POST', data=data)
+                logger.debug(
+                    f"File part uploaded successfully - part_number: {part_number} - "
+                    f"content_type: {content_type}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to upload file part - part_number: {part_number} - "
+                    f"error_type: {type(e).__name__}",
+                    exc_info=True
+                )
+                raise NotionFileUploadError(f"文件分片上传失败: {str(e)}") from e
 
     async def complete_multi_part_upload(self, file_upload_id: str) -> None:
         """完成多部分文件上传"""
@@ -280,6 +289,9 @@ class NotionClient:
             f"Appending file block to page - page_id: {page_id[:8]}... - "
             f"upload_id: {file_upload_id[:8]}... - mime_type: {file_mime_type}"
         )
+        
+        # 等待文件上传完成
+        await self.wait_for_file_upload(file_upload_id)
         
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         
@@ -321,4 +333,87 @@ class NotionClient:
         logger.info(
             f"File block appended successfully - page_id: {page_id[:8]}... - "
             f"block_type: {block_type} - mime_type: {file_mime_type}"
-        ) 
+        )
+
+    async def get_file_upload_status(self, file_upload_id: str) -> Dict[str, Any]:
+        """获取文件上传状态
+        
+        Args:
+            file_upload_id: 文件上传ID
+            
+        Returns:
+            Dict: 包含文件上传状态的响应
+        """
+        url = f"https://api.notion.com/v1/file_uploads/{file_upload_id}"
+        logger.debug(f"Getting file upload status - upload_id: {file_upload_id[:8]}...")
+        
+        response = await self._make_request(url, method='GET')
+        logger.debug(
+            f"File upload status - upload_id: {file_upload_id[:8]}... - "
+            f"status: {response.get('status')}"
+        )
+        return response
+
+    async def wait_for_file_upload(
+        self,
+        file_upload_id: str,
+        max_retries: int = 6,
+        initial_delay: float = 5.0
+    ) -> Dict[str, Any]:
+        """等待文件上传完成
+        
+        Args:
+            file_upload_id: 文件上传ID
+            max_retries: 最大重试次数
+            initial_delay: 初始延迟时间（秒）
+            
+        Returns:
+            Dict: 包含文件上传状态的响应
+            
+        Raises:
+            NotionFileUploadError: 如果文件上传失败或超时
+        """
+        logger.debug(
+            f"Waiting for file upload - upload_id: {file_upload_id[:8]}... - "
+            f"max_retries: {max_retries} - initial_delay: {initial_delay}"
+        )
+        
+        delay = initial_delay
+        for attempt in range(max_retries):
+            try:
+                response = await self.get_file_upload_status(file_upload_id)
+                status = response.get('status')
+                
+                if status == 'uploaded':
+                    logger.info(f"File upload completed - upload_id: {file_upload_id[:8]}...")
+                    return response
+                elif status == 'failed':
+                    error = response.get('file_import_result', {}).get('error', {})
+                    logger.error(
+                        f"File upload failed - upload_id: {file_upload_id[:8]}... - "
+                        f"error: {error}"
+                    )
+                    raise NotionFileUploadError(
+                        f"文件上传失败: {error.get('message', '未知错误')}"
+                    )
+                
+                logger.debug(
+                    f"File upload still pending - upload_id: {file_upload_id[:8]}... - "
+                    f"attempt: {attempt + 1}/{max_retries} - delay: {delay}"
+                )
+                
+                await asyncio.sleep(delay)
+                delay *= 2  # 指数退避
+                
+            except Exception as e:
+                logger.error(
+                    f"Error checking file upload status - upload_id: {file_upload_id[:8]}... - "
+                    f"attempt: {attempt + 1}/{max_retries} - error_type: {type(e).__name__}",
+                    exc_info=True
+                )
+                if attempt == max_retries - 1:
+                    raise NotionFileUploadError(f"等待文件上传超时: {str(e)}")
+                await asyncio.sleep(delay)
+                delay *= 2
+        
+        raise NotionFileUploadError("等待文件上传超时") 
