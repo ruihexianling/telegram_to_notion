@@ -152,7 +152,7 @@ async def deploy_command(update: Update, context) -> None:
         f"Deploy command executed - username: {user.username} - user_id: {user.id}"
     )
 
-def setup_commands(app: Application) -> None:
+async def setup_commands(app: Application) -> Application:
     """设置机器人命令"""
     logger.debug("Setting up bot commands")
     commands = [
@@ -162,12 +162,13 @@ def setup_commands(app: Application) -> None:
     ]
     try:
         # 设置机器人命令
-        app.bot.set_my_commands(commands)
+        await app.bot.set_my_commands(commands)
         logger.info("Bot commands set successfully.")
     except Exception as e:
         logger.exception(f"Failed to set bot commands - error: {e}/n")
         raise
     logger.info("Bot commands setup completed")
+    return app
 
 def setup_bot() -> Application:
     """设置机器人"""

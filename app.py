@@ -89,7 +89,7 @@ async def startup_event():
         await setup_webhook(application, notion_telegram_webhook)
         
         # 设置命令
-        setup_commands(application)
+        application = await setup_commands(application)
         
         logger.info("Bot started successfully with webhook")
         
