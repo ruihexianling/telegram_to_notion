@@ -33,6 +33,30 @@ def is_url_list(content: str) -> bool:
     url_pattern = re.compile(r'^https?://\S+$')
     return all(url_pattern.match(url.strip()) for url in urls)
 
+def get_error_category(error: Exception) -> str:
+    """获取错误类别
+    
+    Args:
+        error: 异常对象
+        
+    Returns:
+        str: 错误类别描述
+    """
+    if isinstance(error, HTTPException):
+        return "请求错误"
+    elif "ClientResponseError" in str(type(error)):
+        return "Notion API 错误"
+    elif "ConnectionError" in str(type(error)):
+        return "网络连接错误"
+    elif "TimeoutError" in str(type(error)):
+        return "请求超时"
+    elif "FileNotFoundError" in str(type(error)):
+        return "文件不存在"
+    elif "PermissionError" in str(type(error)):
+        return "权限错误"
+    else:
+        return "服务器内部错误"
+
 async def api_upload(
     request: Request,
     page_id: Optional[str] = None,
@@ -148,8 +172,11 @@ async def api_upload(
             }
                 
     except Exception as e:
+        # 记录详细错误日志
         logger.exception(f"Error uploading content - error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # 返回简化的错误信息
+        error_category = get_error_category(e)
+        raise HTTPException(status_code=500, detail=error_category)
 
 @router.post(get_route("upload_via_api"))
 async def upload_via_api(
