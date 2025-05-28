@@ -17,6 +17,7 @@ class Message:
     content: Optional[str] = None
     file_path: Optional[str] = None
     file_name: Optional[str] = None
+    external_url: Optional[str] = None
     content_type: Optional[str] = None
     media_group_id: Optional[str] = None
     message_id: Optional[int] = None

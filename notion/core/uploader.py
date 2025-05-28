@@ -2,6 +2,7 @@
 import os
 import asyncio
 from typing import Optional, Dict, Any
+import mimetypes
 
 import aiohttp
 
@@ -36,12 +37,19 @@ class NotionUploader:
             'text/plain', 'text/csv', 'text/markdown', 'text/html'
         }
 
-    async def upload_message(self, message: Message, append_only: bool = False) -> str:
-        """上传消息到 Notion"""
+    async def upload_message(self, message: Message, append_only: bool = False, external_url: Optional[str] = None) -> str:
+        """上传消息到 Notion
+        
+        Args:
+            message: 消息对象
+            append_only: 是否为追加模式
+            external_url: 外部文件URL（如果提供，将使用external_url模式）
+        """
         try:
             logger.debug(
                 f"Starting message upload to Notion - append_only: {append_only} - "
-                f"has_file: {bool(message.file_path)} - has_content: {bool(message.content)}"
+                f"has_file: {bool(message.file_path)} - has_content: {bool(message.content)} - "
+                f"external_url: {external_url[:50] + '...' if external_url else None}"
             )
             
             # 创建页面或使用现有页面
@@ -57,8 +65,8 @@ class NotionUploader:
                 logger.debug(f"Using existing Notion page - page_id: {page_id[:8]}...")
 
             # 处理文件上传
-            if message.file_path:
-                await self._handle_file_upload(page_id, message)
+            if message.file_path or external_url:
+                await self._handle_file_upload(page_id, message, external_url)
 
             # 处理文本内容
             if message.content:
@@ -74,44 +82,62 @@ class NotionUploader:
             )
             raise
 
-    async def _handle_file_upload(self, page_id: str, message: Message) -> None:
-        """处理文件上传"""
-        if not os.path.exists(message.file_path):
-            logger.error("File not found - file_path: ***")  # 脱敏文件路径
-            raise FileNotFoundError(f"File not found at {message.file_path}")
-
-        # 获取文件信息
-        file_name, file_extension, content_type = get_file_info(message.file_path)
-        effective_file_name = message.file_name or file_name
-        effective_content_type = message.content_type or content_type
-
-        logger.debug(
-            f"Processing file upload - file_extension: {file_extension} - "
-            f"content_type: {content_type} - page_id: {page_id[:8]}..."
-        )
-
-        # 检查文件类型是否支持
-        if effective_content_type not in self.supported_mime_types:
-            logger.warning(
-                f"Unsupported file type - content_type: {content_type} - "
-                f"file_extension: {file_extension}"
+    async def _handle_file_upload(self, page_id: str, message: Message, external_url: Optional[str] = None) -> None:
+        """处理文件上传
+        
+        Args:
+            page_id: 页面ID
+            message: 消息对象
+            external_url: 外部文件URL（如果提供，将使用external_url模式）
+        """
+        if external_url:
+            # 使用 external_url 模式
+            file_name = message.file_name or external_url.split('/')[-1]
+            content_type = message.content_type or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
+            
+            logger.debug(
+                f"Processing external URL upload - url: {external_url[:50]}... - "
+                f"content_type: {content_type}"
             )
-            raise NotionFileUploadError(f"Notion 不支持此类型的文件: {effective_file_name}")
+        else:
+            # 使用普通上传模式
+            if not os.path.exists(message.file_path):
+                logger.error("File not found - file_path: ***")  # 脱敏文件路径
+                raise FileNotFoundError(f"File not found at {message.file_path}")
 
-        # 获取文件大小
-        file_size = os.path.getsize(message.file_path)
-        logger.info(
-            f"File size information - file_size_bytes: {file_size} - "
-            f"file_size_mb: {round(file_size / (1024 * 1024), 2)} - "
-            f"content_type: {content_type}"
-        )
+            # 获取文件信息
+            file_name, file_extension, content_type = get_file_info(message.file_path)
+            file_name = message.file_name or file_name
+            content_type = message.content_type or content_type
+
+            logger.debug(
+                f"Processing file upload - file_extension: {file_extension} - "
+                f"content_type: {content_type} - page_id: {page_id[:8]}..."
+            )
+
+            # 检查文件类型是否支持
+            if content_type not in self.supported_mime_types:
+                logger.warning(
+                    f"Unsupported file type - content_type: {content_type} - "
+                    f"file_extension: {file_extension}"
+                )
+                raise NotionFileUploadError(f"Notion 不支持此类型的文件: {file_name}")
+
+            # 获取文件大小
+            file_size = os.path.getsize(message.file_path)
+            logger.info(
+                f"File size information - file_size_bytes: {file_size} - "
+                f"file_size_mb: {round(file_size / (1024 * 1024), 2)} - "
+                f"content_type: {content_type}"
+            )
 
         try:
             # 创建文件上传对象
             file_upload_id, upload_url, number_of_parts, mode = await self.client.create_file_upload(
-                effective_file_name,
-                effective_content_type,
-                file_size
+                file_name,
+                content_type,
+                file_size if not external_url else None,
+                external_url
             )
 
             logger.debug(
@@ -119,33 +145,34 @@ class NotionUploader:
                 f"number_of_parts: {number_of_parts} - content_type: {content_type}"
             )
 
-            # 上传文件
-            if mode == "multi_part":
-                await self._upload_multi_part_file(
-                    message.file_path,
-                    upload_url,
-                    effective_content_type,
-                    number_of_parts
-                )
-                await self.client.complete_multi_part_upload(file_upload_id)
-                logger.info(
-                    f"Multi-part file upload completed - number_of_parts: {number_of_parts} - "
-                    f"content_type: {content_type}"
-                )
-            else:
-                await self._upload_single_part_file(
-                    message.file_path,
-                    upload_url,
-                    effective_content_type
-                )
-                logger.info(f"Single-part file upload completed - content_type: {content_type}")
+            if not external_url:
+                # 上传文件
+                if mode == "multi_part":
+                    await self._upload_multi_part_file(
+                        message.file_path,
+                        upload_url,
+                        content_type,
+                        number_of_parts
+                    )
+                    await self.client.complete_multi_part_upload(file_upload_id)
+                    logger.info(
+                        f"Multi-part file upload completed - number_of_parts: {number_of_parts} - "
+                        f"content_type: {content_type}"
+                    )
+                else:
+                    await self._upload_single_part_file(
+                        message.file_path,
+                        upload_url,
+                        content_type
+                    )
+                    logger.info(f"Single-part file upload completed - content_type: {content_type}")
 
             # 添加文件块到页面
             await self.client.append_file_block(
                 page_id,
                 file_upload_id,
-                effective_file_name,
-                effective_content_type
+                file_name,
+                content_type
             )
             logger.info(
                 f"File block appended to page - page_id: {page_id[:8]}... - "
@@ -209,4 +236,4 @@ class NotionUploader:
         logger.debug(
             f"Multi-part file upload completed - number_of_parts: {number_of_parts} - "
             f"content_type: {content_type}"
-        ) 
+        )

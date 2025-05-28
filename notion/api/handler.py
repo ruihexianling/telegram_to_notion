@@ -25,6 +25,7 @@ async def api_upload(
     page_id: Optional[str] = None,
     content: Optional[str] = None,
     files: Optional[List[UploadFile]] = None,
+    external_url: Optional[str] = None,
     x_signature: Optional[str] = None,
     append_only: bool = False
 ) -> dict:
@@ -35,6 +36,7 @@ async def api_upload(
         page_id: 目标页面ID
         content: 内容
         files: 上传的文件列表
+        external_url: 外部文件URL
         x_signature: API 签名
         append_only: 是否为追加模式
         
@@ -79,7 +81,16 @@ async def api_upload(
                 )
             
             # 处理文件上传
-            if files:
+            if external_url:
+                message = Message(
+                    content=content,
+                    file_path=None,
+                    file_name=None,
+                    content_type=None,
+                    external_url=external_url
+                )
+                await uploader.upload_message(message, append_only=True, external_url=external_url)
+            elif files:
                 for file in files:
                     # 保存文件到临时目录
                     file_path, file_name, content_type = await save_upload_file_temporarily(file)
@@ -126,7 +137,8 @@ async def upload_as_page(
     request: Request,
     page_id: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
-    files: list[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None),
+    external_url: Optional[str] = Form(None),
     x_signature: str = Header(None, alias="X-Signature")
 ):
     """上传内容为页面
@@ -135,6 +147,7 @@ async def upload_as_page(
         page_id: 父页面ID
         content: 页面内容
         files: 上传的文件列表
+        external_url: 外部文件URL
         x_signature: API 签名，在请求头中通过 X-Signature 传递
     """
     return await api_upload(
@@ -142,6 +155,7 @@ async def upload_as_page(
         page_id=page_id,
         content=content,
         files=files,
+        external_url=external_url,
         x_signature=x_signature,
         append_only=False
     )
@@ -151,7 +165,8 @@ async def upload_as_block(
     request: Request,
     page_id: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
-    files: list[UploadFile] = File(None),
+    files: Optional[List[UploadFile]] = File(None),
+    external_url: Optional[str] = Form(None),
     x_signature: str = Header(None, alias="X-Signature")
 ):
     """上传内容为块
@@ -160,6 +175,7 @@ async def upload_as_block(
         page_id: 目标页面ID
         content: 块内容
         files: 上传的文件列表
+        external_url: 外部文件URL
         x_signature: API 签名，在请求头中通过 X-Signature 传递
     """
     return await api_upload(
@@ -167,6 +183,7 @@ async def upload_as_block(
         page_id=page_id,
         content=content,
         files=files,
+        external_url=external_url,
         x_signature=x_signature,
         append_only=True
     )
