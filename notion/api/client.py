@@ -63,9 +63,6 @@ class NotionClient:
             f"endpoint: {url.split('/')[-1]} - "
             f"has_payload: {bool(payload)} - has_data: {bool(data)}"
         )
-        
-        if payload:
-            logger.debug(f"Request payload: {json.dumps(payload, ensure_ascii=False)}")
 
         try:
             if method == 'POST':
@@ -98,20 +95,13 @@ class NotionClient:
         """处理 API 响应"""
         try:
             response.raise_for_status()
-            response_data = await response.json()
-            logger.debug(
-                f"Notion API response - status: {response.status} - "
-                f"endpoint: {url.split('/')[-1]} - "
-                f"response: {json.dumps(response_data, ensure_ascii=False)}"
-            )
-            return response_data
+            return await response.json()
         except aiohttp.ClientResponseError as e:
             response_body = await response.text()
             logger.error(
                 f"Notion API response error - status_code: {e.status} - "
                 f"endpoint: {url.split('/')[-1]} - "
-                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'} - "
-                f"response_body: {response_body}"
+                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'}"
             )
             if 'file_uploads' in url:
                 raise NotionFileUploadError(
@@ -212,8 +202,7 @@ class NotionClient:
         """创建文件上传对象"""
         logger.debug(
             f"Creating file upload object - content_type: {content_type} - "
-            f"file_size_mb: {round(file_size / (1024 * 1024), 2) if file_size else None} - "
-            f"external_url: {external_url[:50] + '...' if external_url else None}"
+            f"file_size_mb: {round(file_size / (1024 * 1024), 2) if file_size else None}"
         )
         
         url = "https://api.notion.com/v1/file_uploads"
@@ -249,14 +238,12 @@ class NotionClient:
                     f"part_size_mb: {round(part_size / (1024 * 1024), 2)}"
                 )
         
-        logger.debug(f"File upload payload: {json.dumps(payload, ensure_ascii=False)}")
-        
         response = await self._make_request(url, method='POST', payload=payload)
         logger.info(
             f"File upload object created - upload_id: {response['id'][:8]}... - "
             f"mode: {mode} - number_of_parts: {number_of_parts}"
         )
-        return response['id'], response.get('upload_url'), number_of_parts, mode
+        return response['id'], response['upload_url'], number_of_parts, mode
 
     async def upload_file_part(
         self,
@@ -270,8 +257,7 @@ class NotionClient:
         """上传文件的一部分"""
         logger.debug(
             f"Uploading file part - part_number: {part_number} - "
-            f"content_type: {content_type} - part_size: {end_byte - start_byte} - "
-            f"upload_url: {upload_url}"
+            f"content_type: {content_type} - part_size: {end_byte - start_byte}"
         )
         
         with open(file_path, "rb") as f:
@@ -283,12 +269,11 @@ class NotionClient:
             data.add_field('part_number', str(part_number))
             
             try:
-                async with self._session.put(upload_url, data=data) as response:
-                    response.raise_for_status()
-                    logger.debug(
-                        f"File part uploaded successfully - part_number: {part_number} - "
-                        f"status: {response.status}"
-                    )
+                await self._make_request(upload_url, method='POST', data=data)
+                logger.debug(
+                    f"File part uploaded successfully - part_number: {part_number} - "
+                    f"content_type: {content_type}"
+                )
             except Exception as e:
                 logger.error(
                     f"Failed to upload file part - part_number: {part_number} - "
@@ -308,16 +293,16 @@ class NotionClient:
 
     async def get_file_upload_status(self, file_upload_id: str) -> Dict[str, Any]:
         """获取文件上传状态
-        
+
         Args:
             file_upload_id: 文件上传ID
-            
+
         Returns:
             Dict: 包含文件上传状态的响应
         """
         url = f"https://api.notion.com/v1/file_uploads/{file_upload_id}"
         logger.debug(f"Getting file upload status - upload_id: {file_upload_id[:8]}...")
-        
+
         response = await self._make_request(url, method='GET')
         logger.debug(
             f"File upload status - upload_id: {file_upload_id[:8]}... - "
@@ -332,15 +317,15 @@ class NotionClient:
         initial_delay: float = 5.0
     ) -> Dict[str, Any]:
         """等待文件上传完成
-        
+
         Args:
             file_upload_id: 文件上传ID
             max_retries: 最大重试次数
             initial_delay: 初始延迟时间（秒）
-            
+
         Returns:
             Dict: 包含文件上传状态的响应
-            
+
         Raises:
             NotionFileUploadError: 如果文件上传失败或超时
         """
@@ -348,13 +333,13 @@ class NotionClient:
             f"Waiting for file upload - upload_id: {file_upload_id[:8]}... - "
             f"max_retries: {max_retries} - initial_delay: {initial_delay}"
         )
-        
+
         delay = initial_delay
         for attempt in range(max_retries):
             try:
                 response = await self.get_file_upload_status(file_upload_id)
                 status = response.get('status')
-                
+
                 if status == 'uploaded':
                     logger.info(f"File upload completed - upload_id: {file_upload_id[:8]}...")
                     return response
@@ -367,15 +352,15 @@ class NotionClient:
                     raise NotionFileUploadError(
                         f"文件上传失败: {error.get('message', '未知错误')}"
                     )
-                
+
                 logger.debug(
                     f"File upload still pending - upload_id: {file_upload_id[:8]}... - "
                     f"attempt: {attempt + 1}/{max_retries} - delay: {delay}"
                 )
-                
+
                 await asyncio.sleep(delay)
                 delay *= 2  # 指数退避
-                
+
             except Exception as e:
                 logger.error(
                     f"Error checking file upload status - upload_id: {file_upload_id[:8]}... - "
@@ -386,7 +371,7 @@ class NotionClient:
                     raise NotionFileUploadError(f"等待文件上传超时: {str(e)}")
                 await asyncio.sleep(delay)
                 delay *= 2
-        
+
         raise NotionFileUploadError("等待文件上传超时")
 
     async def append_file_block(
@@ -404,7 +389,7 @@ class NotionClient:
         
         # 等待文件上传完成
         await self.wait_for_file_upload(file_upload_id)
-        
+
         url = f"https://api.notion.com/v1/blocks/{page_id}/children"
         
         # 根据文件类型确定块类型
@@ -423,7 +408,7 @@ class NotionClient:
             f"Determined block type - block_type: {block_type} - "
             f"mime_type: {file_mime_type} - file_name: {file_name}"
         )
-        
+
         # 构建 payload
         payload = {
             "children": [
@@ -439,7 +424,7 @@ class NotionClient:
                 }
             ]
         }
-        
+
         # 添加文件名作为标题（如果需要）
         if file_name:
             payload["children"][0][block_type]["caption"] = [
@@ -455,7 +440,7 @@ class NotionClient:
             f"Preparing to append file block - url: {url} - "
             f"payload: {json.dumps(payload, ensure_ascii=False)}"
         )
-        
+
         try:
             response = await self._make_request(url, method='PATCH', payload=payload)
             logger.info(
