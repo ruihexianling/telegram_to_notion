@@ -77,7 +77,7 @@ async def startup_event():
         set_application(application)
         
         # 设置 webhook
-        notion_telegram_webhook = f"{NOTION_TELEGRAM_BOT_WEBHOOK_URL+get_route('notion_telegram_webhook')}"
+        notion_telegram_webhook = f"NOTION_TELEGRAM_BOT_WEBHOOK_URL+{get_route('notion_telegram_webhook')}"
         logger.info(f"Setting webhook URL: {notion_telegram_webhook}")
         
         # 初始化机器人
