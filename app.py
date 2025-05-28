@@ -10,7 +10,7 @@ from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
-from notion.bot.handler import router as bot_router
+from notion.bot.handler import router as bot_router, set_application
 from notion.routes import get_route, API_PREFIX
 
 from logger import setup_logger
@@ -73,6 +73,9 @@ async def startup_event():
         logger.info("Starting application")
         # 设置机器人
         application = setup_bot()
+        
+        # 设置全局 Application 实例
+        set_application(application)
         
         # 设置 webhook
         webhook_url = f"{WEBHOOK_URL}{get_route('api_telegram_webhook')}"

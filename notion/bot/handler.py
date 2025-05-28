@@ -31,6 +31,14 @@ message_buffer = MessageBuffer()
 # 创建路由
 router = APIRouter()
 
+# 全局 Application 实例
+_application: Optional[Application] = None
+
+def set_application(application: Application):
+    """设置全局 Application 实例"""
+    global _application
+    _application = application
+
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理所有消息"""
     message = update.message
@@ -92,14 +100,14 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def telegram_webhook(request: Request):
     """处理 Telegram webhook 请求"""
     try:
-        # 获取当前应用实例
-        application = Application.get_current()
-        
+        if not _application:
+            raise HTTPException(status_code=500, detail="Application not initialized")
+            
         # 解析更新
-        update = Update.de_json(await request.json(), application.bot)
+        update = Update.de_json(await request.json(), _application.bot)
         
         # 处理更新
-        await application.process_update(update)
+        await _application.process_update(update)
         
         logger.info(
             f"Processed Telegram update - update_id: {update.update_id}"
