@@ -72,7 +72,7 @@ async def api_upload(
             else:
                 # 非追加模式：创建新页面
                 title = content[:15]
-                new_page_id = await client.create_page(title, content)
+                new_page_id = await client.create_page(title)
                 client.parent_page_id = new_page_id
                 logger.info(
                     f"Created new Notion page - parent_page_id: {page_id} - "
