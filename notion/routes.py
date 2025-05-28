@@ -27,7 +27,7 @@ ROUTES: Dict[str, str] = {
     # "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
 
     # telegram webhook 路由
-    "notion_telegram_webhook": f"/{NOTION_TELEGRAM_BOT_WEBHOOK}",
+    "notion_telegram_webhook": f"{NOTION_TELEGRAM_BOT_WEBHOOK}",
     
     # API 上传页面路由
     "api_upload_page": f"{API_PREFIX}/upload_page",

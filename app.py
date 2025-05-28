@@ -78,15 +78,15 @@ async def startup_event():
         set_application(application)
         
         # 设置 webhook
-        webhook_url = f"{WEBHOOK_URL}{get_route('api_telegram_webhook')}"
-        logger.info(f"Setting webhook URL: {webhook_url}")
+        notion_telegram_webhook = f"{get_route('notion_telegram_webhook')}"
+        logger.info(f"Setting webhook URL: {notion_telegram_webhook}")
         
         # 初始化机器人
         logger.debug("Initializing bot application")
         await application.initialize()
         
         # 设置 webhook
-        await setup_webhook(application, webhook_url)
+        await setup_webhook(application, notion_telegram_webhook)
         
         # 设置命令
         setup_commands(application)
