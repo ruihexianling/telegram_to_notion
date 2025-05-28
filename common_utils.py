@@ -2,8 +2,12 @@ from urllib.request import Request
 from functools import wraps
 from telegram import Update
 from telegram.ext import CallbackContext
-from config import ADMIN_USERS, AUTHORIZED_USERS, API_SECRET
 
+from config import ADMIN_USERS, AUTHORIZED_USERS, API_SECRET
+# 配置日志
+from logger import setup_logger
+
+logger = setup_logger(__name__)
 
 def verify_signature(signature: str,request: Request) -> bool:
     # 具体校验逻辑待实现
