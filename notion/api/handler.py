@@ -23,7 +23,6 @@ router = APIRouter()
 async def api_upload(
     request: Request,
     page_id: Optional[str] = None,
-    title: Optional[str] = None,
     content: Optional[str] = None,
     files: Optional[List[UploadFile]] = None,
     x_signature: Optional[str] = None,
@@ -171,4 +170,3 @@ async def upload_as_block(
         x_signature=x_signature,
         append_only=True
     )
-        

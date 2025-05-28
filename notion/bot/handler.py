@@ -85,7 +85,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"First message saved to Notion, sending page URL - username: {update.effective_user.username} - "
                     f"user_id: {update.effective_user.id} - page_url: {page_url}"
                 )
-                await message.reply_text(f"您的消息已保存到Notion页面：{page_url}")
+                await message.reply_text(f"您的消息已保存到Notion页面：{page_url}\n 30秒内继续的消息将自动追加到该页面")
                 message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
                 
     except Exception as e:
