@@ -30,8 +30,7 @@ ROUTES: Dict[str, str] = {
     "notion_telegram_webhook": f"{NOTION_TELEGRAM_BOT_WEBHOOK}",
     
     # API 上传页面路由
-    "api_upload_page": f"{API_PREFIX}/upload_page",
-    "api_upload_block": f"{API_PREFIX}/upload_block",
+    "upload_via_api": f"{API_PREFIX}/upload_via_api",
 }
 
 def get_route(route_name: str) -> str:

@@ -49,7 +49,7 @@ async def api_upload(
         page_id: 目标页面ID
         content: 内容
         files: 上传的文件列表
-        urls: URL列表字符串（每行一个URL）
+        urls: URL列表字符串（逗号分隔）
         x_signature: API 签名
         append_only: 是否为追加模式
         
@@ -87,7 +87,7 @@ async def api_upload(
                 # 非追加模式：创建新页面
                 beijing_tz = pytz.timezone('Asia/Shanghai')
                 now_beijing = datetime.datetime.now(beijing_tz)
-                title = content[:15] if content else "新页面" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
+                title = content[:15] if content else "from_api_" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
                 new_page_id = await client.create_page(title)
                 client.parent_page_id = new_page_id
                 logger.info(
@@ -151,13 +151,14 @@ async def api_upload(
         logger.exception(f"Error uploading content - error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post(get_route("api_upload_page"))
-async def upload_as_page(
+@router.post(get_route("upload_via_api"))
+async def upload_via_api(
     request: Request,
     page_id: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
     urls: Optional[str] = Form(None),
+    append_only: bool = Form(True),
     x_signature: str = Header(None, alias="X-Signature")
 ):
     """上传内容为页面
@@ -166,7 +167,7 @@ async def upload_as_page(
         page_id: 父页面ID
         content: 页面内容
         files: 上传的文件列表
-        urls: URL列表字符串（每行一个URL）
+        urls: URL列表字符串（逗号分隔）
         x_signature: API 签名，在请求头中通过 X-Signature 传递
     """
     return await api_upload(
@@ -176,33 +177,5 @@ async def upload_as_page(
         files=files,
         urls=urls,
         x_signature=x_signature,
-        append_only=False
-    )
-
-@router.post(get_route("api_upload_block"))
-async def upload_as_block(
-    request: Request,
-    page_id: Optional[str] = Form(None),
-    content: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
-    urls: Optional[str] = Form(None),
-    x_signature: str = Header(None, alias="X-Signature")
-):
-    """上传内容为块
-    
-    Args:
-        page_id: 目标页面ID
-        content: 块内容
-        files: 上传的文件列表
-        urls: URL列表字符串（每行一个URL）
-        x_signature: API 签名，在请求头中通过 X-Signature 传递
-    """
-    return await api_upload(
-        request=request,
-        page_id=page_id,
-        content=content,
-        files=files,
-        urls=urls,
-        x_signature=x_signature,
-        append_only=True
+        append_only=append_only
     )
