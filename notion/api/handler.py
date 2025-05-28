@@ -10,12 +10,11 @@ from ..core.message import Message
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 from ..routes import get_route
+from ..utils.file_utils import save_upload_file_temporarily, cleanup_temp_file
 
 from logger import setup_logger
 from config import *
 # 配置日志
-from ..utils.file_utils import save_upload_file_temporarily
-
 logger = setup_logger(__name__)
 
 # 创建路由
@@ -84,21 +83,22 @@ async def api_upload(
             if files:
                 for file in files:
                     # 保存文件到临时目录
-                    file_path = await save_upload_file_temporarily(file)
+                    file_path, file_name, content_type = await save_upload_file_temporarily(file)
                     try:
                         # 创建消息对象
                         message = Message(
                             content=content,
                             file_path=file_path,
-                            file_name=file.filename,
-                            content_type=file.content_type
+                            file_name=file_name,
+                            content_type=content_type
                         )
                         
                         # 上传消息
                         await uploader.upload_message(message, append_only=True)
                     finally:
                         # 清理临时文件
-                        await cleanup_temp_file(file_path)
+                        if file_path:
+                            cleanup_temp_file(file_path)
             else:
                 # 没有文件，只处理文本内容
                 message = Message(
@@ -174,3 +174,4 @@ async def upload_as_block(
         x_signature=x_signature,
         append_only=True
     )
+        
