@@ -1,6 +1,6 @@
 """路由配置模块"""
 from typing import Dict
-from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH, NOTION_TELEGRAM_BOT_WEBHOOK_URL
+from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH
 
 # API 路由前缀
 API_PREFIX = "/api"

@@ -1,17 +1,16 @@
 """主应用模块"""
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from telegram.ext import Application
-from telegram import Bot
 
 from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
 from notion.bot.handler import router as bot_router, set_application
-from notion.routes import get_route, API_PREFIX
+from notion.routes import get_route
 
 from logger import setup_logger
 # 配置日志
@@ -78,7 +77,7 @@ async def startup_event():
         set_application(application)
         
         # 设置 webhook
-        notion_telegram_webhook = f"{get_route('notion_telegram_webhook')}"
+        notion_telegram_webhook = f"{NOTION_TELEGRAM_BOT_WEBHOOK_URL+get_route('notion_telegram_webhook')}"
         logger.info(f"Setting webhook URL: {notion_telegram_webhook}")
         
         # 初始化机器人

@@ -9,9 +9,9 @@ logger = setup_logger(__name__)
 
 logger.info("Application started.")
 
-if __name__ == "__main__":
-    # Get bot token from environment variables
+def main():
     bot_token = TELEGRAM_BOT_TOKEN
+    global application
     if not bot_token:
         logger.critical("TELEGRAM_BOT_TOKEN environment variable not set. Please set it to run the bot.")
         exit(1) # Exit if token is not set
@@ -30,3 +30,6 @@ if __name__ == "__main__":
         logger.info("Bot is shutting down.")
         application.shutdown()
         logger.info("Application shut down successfully.")
+
+if __name__ == "__main__":
+    main()
