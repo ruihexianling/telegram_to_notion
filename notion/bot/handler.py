@@ -1,7 +1,7 @@
 """Telegram Bot 消息处理器"""
 from typing import Optional
 from telegram import Update
-from telegram.ext import ContextTypes
+from telegram.ext import ContextTypes, Application
 from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import JSONResponse
 

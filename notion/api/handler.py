@@ -3,12 +3,14 @@ from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
 from starlette.responses import JSONResponse
 
+from common_utils import verify_signature
 from ..api.client import NotionClient
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 from ..routes import get_route
 
 from logger import setup_logger
+from config import *
 # 配置日志
 logger = setup_logger(__name__)
 
@@ -25,7 +27,7 @@ async def upload_as_page(
     """上传内容为页面"""
     try:
         # 验证签名
-        signature = request.headers.get("x-notion-signature")
+        signature = request.headers.get("X-Signature")
         if not signature:
             raise HTTPException(status_code=400, detail="Missing signature")
             
@@ -33,14 +35,14 @@ async def upload_as_page(
         body = await request.body()
         
         # 验证签名
-        if not verify_signature(body, signature, NOTION_API_SECRET):
+        if not verify_signature(body, signature, API_SECRET):
             raise HTTPException(status_code=401, detail="Invalid signature")
             
         # 创建 Notion 客户端
         config = NotionConfig({
             'NOTION_KEY': NOTION_KEY,
             'NOTION_VERSION': NOTION_VERSION,
-            'PAGE_ID': NOTION_PAGE_ID
+            'PAGE_ID': PAGE_ID
         })
         
         async with NotionClient(config) as client:
