@@ -22,7 +22,7 @@ router = APIRouter()
 
 async def api_upload(
     request: Request,
-    page_id: Optional[str] = None
+    page_id: Optional[str] = None,
     title: Optional[str] = None,
     content: Optional[str] = None,
     files: Optional[List[UploadFile]] = None,
