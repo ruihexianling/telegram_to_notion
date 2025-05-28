@@ -1,12 +1,13 @@
 """路由配置模块"""
 from typing import Dict
+from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH, NOTION_TELEGRAM_BOT_WEBHOOK_URL
 
 # API 路由前缀
 API_PREFIX = "/api"
 
 # Webhook 路由
-WEBHOOK_PATH = "webhook"
-TELEGRAM_WEBHOOK_PATH = "telegram/webhook"
+
+NOTION_TELEGRAM_BOT_WEBHOOK = NOTION_TELEGRAM_BOT_WEBHOOK_URL+NOTION_TELEGRAM_BOT_WEBHOOK_PATH
 
 # 健康检查路由
 HEALTH_CHECK_PATH = "healthz"
@@ -16,17 +17,17 @@ ROOT_PATH = "/"
 
 # 路由映射
 ROUTES: Dict[str, str] = {
-    # API 路由
-    "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
-
-    # telegram webhook 路由
-    "api_telegram_webhook": f"/{TELEGRAM_WEBHOOK_PATH}",
-    
-    # 健康检查路由
-    "health_check": f"/{HEALTH_CHECK_PATH}",
-    
     # 根路由
     "root": ROOT_PATH,
+
+    # 健康检查路由
+    "health_check": f"/{HEALTH_CHECK_PATH}",
+
+    # API 路由
+    # "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
+
+    # telegram webhook 路由
+    "notion_telegram_webhook": f"/{NOTION_TELEGRAM_BOT_WEBHOOK}",
     
     # API 上传页面路由
     "api_upload_page": f"{API_PREFIX}/upload_page",

@@ -85,7 +85,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"First message saved to Notion, sending page URL - username: {update.effective_user.username} - "
                     f"user_id: {update.effective_user.id} - page_url: {page_url}"
                 )
-                await message.reply_text(f"您的消息已保存到Notion页面：{page_url}\n 30秒内继续的消息将自动追加到该页面")
+                await message.reply_text(f"您的消息已保存到Notion页面：{page_url}\n 30秒内继续发送的消息将自动追加到该页面")
                 message_buffer.buffers[update.effective_user.id]['first_reply_sent'] = True
                 
     except Exception as e:
@@ -96,7 +96,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         await message.reply_text(f"❌ {error_msg}")
 
-@router.post(get_route("api_telegram_webhook"))
+@router.post(get_route("notion_telegram_webhook"))
 async def telegram_webhook(request: Request):
     """处理 Telegram webhook 请求"""
     try:

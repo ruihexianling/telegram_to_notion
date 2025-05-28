@@ -15,8 +15,8 @@ PAGE_ID= os.getenv('PAGE_ID')  # 替换为你的Notion页面ID
 # Webhook配置
 USE_WEBHOOK = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
 PORT = int(os.getenv('PORT', 8443))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL') # 替换为你的Webhook URL
-WEBHOOK_PATH = os.getenv('WEBHOOK_PATH') # 替换为你的Webhook路径
+NOTION_TELEGRAM_BOT_WEBHOOK_URL = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_URL')
+NOTION_TELEGRAM_BOT_WEBHOOK_PATH = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_PATH')
 
 # 授权用户列表
 AUTHORIZED_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
