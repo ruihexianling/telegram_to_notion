@@ -22,7 +22,7 @@ router = APIRouter()
 
 async def api_upload(
     request: Request,
-    page_id: str,
+    page_id: Optional[str] = None
     title: Optional[str] = None,
     content: Optional[str] = None,
     files: Optional[List[UploadFile]] = None,
@@ -55,6 +55,10 @@ async def api_upload(
         # 非追加模式下需要标题
         if not append_only and not title:
             raise HTTPException(status_code=400, detail="Title is required for page creation")
+        
+        if not page_id:
+            # 如果没有提供 page_id，使用默认的
+            page_id = PAGE_ID
             
         # 创建 Notion 客户端
         config = NotionConfig({
