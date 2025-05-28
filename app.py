@@ -34,9 +34,9 @@ app.add_middleware(
 )
 
 # 添加路由
-app.include_router(webhook_router, prefix=API_PREFIX)
-app.include_router(api_router, prefix=API_PREFIX)
-app.include_router(bot_router, prefix=API_PREFIX)
+app.include_router(webhook_router)
+app.include_router(api_router)
+app.include_router(bot_router)
 
 # API 路由
 @app.get(get_route("root"))
@@ -49,24 +49,13 @@ async def root():
 async def health_check():
     """健康检查路由，用于 UptimeRobot 监控"""
     try:
-        # 获取当前应用实例
-        application = Application.get_current()
-        
-        # 检查 webhook 状态
-        webhook_info = await application.bot.get_webhook_info()
-        
-        # 返回健康状态
-        return JSONResponse({
-            "status": "healthy",
-            "webhook": {
-                "has_custom_certificate": webhook_info.has_custom_certificate,
-                "pending_update_count": webhook_info.pending_update_count,
-                "last_error_date": webhook_info.last_error_date,
-                "last_error_message": webhook_info.last_error_message,
-                "max_connections": webhook_info.max_connections,
-                "ip_address": webhook_info.ip_address
+        logger.info("Performing health check")
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "healthy"
             }
-        })
+        )
     except Exception as e:
         logger.error(f"Health check failed - error: {e}")
         return JSONResponse(
