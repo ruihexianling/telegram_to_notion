@@ -34,7 +34,6 @@ async def api_upload(
     Args:
         request: FastAPI 请求对象
         page_id: 目标页面ID
-        title: 页面标题（仅在非追加模式下需要）
         content: 内容
         files: 上传的文件列表
         x_signature: API 签名
@@ -52,10 +51,6 @@ async def api_upload(
         if not verify_signature(x_signature, request):
             raise HTTPException(status_code=401, detail="Invalid signature")
             
-        # 非追加模式下需要标题
-        if not append_only and not title:
-            raise HTTPException(status_code=400, detail="Title is required for page creation")
-        
         if not page_id:
             # 如果没有提供 page_id，使用默认的
             page_id = PAGE_ID
@@ -76,6 +71,7 @@ async def api_upload(
                 client.parent_page_id = page_id
             else:
                 # 非追加模式：创建新页面
+                title = content[:15]
                 new_page_id = await client.create_page(title, content)
                 client.parent_page_id = new_page_id
                 logger.info(
@@ -129,8 +125,7 @@ async def api_upload(
 @router.post(get_route("api_upload_page"))
 async def upload_as_page(
     request: Request,
-    page_id: str = Form(...),
-    title: str = Form(...),
+    page_id: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     files: list[UploadFile] = File(None),
     x_signature: str = Header(None, alias="X-Signature")
@@ -139,7 +134,6 @@ async def upload_as_page(
     
     Args:
         page_id: 父页面ID
-        title: 页面标题
         content: 页面内容
         files: 上传的文件列表
         x_signature: API 签名，在请求头中通过 X-Signature 传递
@@ -147,7 +141,6 @@ async def upload_as_page(
     return await api_upload(
         request=request,
         page_id=page_id,
-        title=title,
         content=content,
         files=files,
         x_signature=x_signature,
@@ -157,8 +150,8 @@ async def upload_as_page(
 @router.post(get_route("api_upload_block"))
 async def upload_as_block(
     request: Request,
-    page_id: str = Form(...),
-    content: str = Form(...),
+    page_id: Optional[str] = Form(None),
+    content: Optional[str] = Form(None),
     files: list[UploadFile] = File(None),
     x_signature: str = Header(None, alias="X-Signature")
 ):
