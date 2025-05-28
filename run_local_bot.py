@@ -24,7 +24,7 @@ if __name__ == "__main__":
         logger.info("Starting bot in polling mode...")
         setup_commands(application)
         # Use run_polling for blocking polling execution
-        application.run_polling(poll_interval=2.0)
+        application.run_polling(poll_interval=5.0)
         
         # Stop the bot
         logger.info("Bot is shutting down.")

@@ -12,7 +12,7 @@ from ..utils.config import NotionConfig
 import config
 from ..routes import get_route
 
-from common_utils import is_user_authorized
+from common_utils import is_auth_user
 
 from logger import setup_logger
 # 配置日志
@@ -51,8 +51,8 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"user_id: {update.effective_user.id}"
     )
 
-    if not is_user_authorized(update.effective_user.id):
-        await message.reply_text("您没有权限使用此功能")
+    if not is_auth_user(update.effective_user.id):
+        await message.reply_text("您没有权限使用此功能, 请联系管理员")
         logger.warning(
             f"Unauthorized user attempted to use the bot - username: {update.effective_user.username} - "
             f"user_id: {update.effective_user.id} - text_content: {message.text}"

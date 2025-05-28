@@ -4,12 +4,13 @@ import sys
 from typing import Optional
 from config import DEBUG
 
-def setup_logger(name: str, level: Optional[int] = None) -> logging.Logger:
+def setup_logger(name: str, level: Optional[int] = None, log_third_party: bool = False) -> logging.Logger:
     """设置日志记录器
     
     Args:
         name: 日志记录器名称
         level: 日志级别，默认为 INFO
+        log_third_party: 是否记录第三方库的日志，默认为 False
         
     Returns:
         logging.Logger: 配置好的日志记录器
@@ -20,12 +21,16 @@ def setup_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     # 设置日志级别
     if level is None:
         level = logging.DEBUG if DEBUG else logging.INFO
+        log_third_party = True if DEBUG else False
     logger.setLevel(level)
     
     # 如果已经有处理器，不重复添加
     if logger.handlers:
         return logger
         
+    # 防止日志消息传递给根记录器，避免重复输出
+    logger.propagate = False
+
     # 创建控制台处理器
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
@@ -36,6 +41,16 @@ def setup_logger(name: str, level: Optional[int] = None) -> logging.Logger:
     # 添加处理器
     logger.addHandler(console_handler)
     
+    # 如果需要记录第三方库的日志，则为第三方库设置单独的处理器和级别
+    if log_third_party:
+        third_party_logger = logging.getLogger('')  # 获取根记录器
+        third_party_logger.setLevel(logging.INFO)  # 设置第三方库的日志级别
+        if not third_party_logger.handlers:
+            third_party_handler = logging.StreamHandler(sys.stdout)
+            third_party_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            third_party_handler.setFormatter(third_party_formatter)
+            third_party_logger.addHandler(third_party_handler)
+
     return logger
 
     

@@ -1,10 +1,11 @@
 """Telegram Bot 设置模块"""
+from urllib import request
+
+import requests
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
-
 from .handler import handle_any_message
-from common_utils import is_user_authorized
+from common_utils import auth_required, is_auth_user, admin_required
 from config import *
 from logger import setup_logger
 # 配置日志
@@ -92,7 +93,7 @@ async def start(update: Update, context) -> None:
         f"Received /start command - username: {user.username} - user_id: {user.id}"
     )
     
-    if is_user_authorized(user.id):
+    if is_auth_user(user.id):
         await update.message.reply_text(
             f"欢迎使用 Notion 机器人，{user.first_name}！\n"
             "您可以直接发送消息，我会将它们保存到 Notion 中。"
@@ -106,19 +107,13 @@ async def start(update: Update, context) -> None:
             f"Unauthorized user attempted to start the bot - username: {user.username} - user_id: {user.id}"
         )
 
+@auth_required
 async def help_command(update: Update, context) -> None:
     """处理 /help 命令"""
     user = update.effective_user
     logger.debug(
         f"Received /help command - username: {user.username} - user_id: {user.id}"
     )
-    
-    if not is_user_authorized(user.id):
-        await update.message.reply_text('您没有权限使用此机器人。')
-        logger.warning(
-            f"Unauthorized user attempted to access help - username: {user.username} - user_id: {user.id}"
-        )
-        return
         
     await update.message.reply_text(
         '使用说明：\n'
@@ -131,14 +126,47 @@ async def help_command(update: Update, context) -> None:
         f"Help information sent to user - username: {user.username} - user_id: {user.id}"
     )
 
+@admin_required
+async def deploy_command(update: Update, context) -> None:
+    """执行重新部署实例的命令（管理员专用）"""
+    user = update.effective_user
+    logger.debug(
+        f"Received /deploy command - username: {user.username} - user_id: {user.id}"
+    )
+    
+    await update.message.reply_text("🔄 正在重新部署实例...")
+    
+    try:
+        # 构建请求数据
+        url = DEPLOY_URL
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            await update.message.reply_text("✅ 部署请求已发送，请等待实例重新部署...")
+        else:
+            await update.message.reply_text(f"❌ 部署请求失败: {response.status_code}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ 部署请求出错: {e}")
+
+    logger.info(
+        f"Deploy command executed - username: {user.username} - user_id: {user.id}"
+    )
+
 def setup_commands(app: Application) -> None:
     """设置机器人命令"""
     logger.debug("Setting up bot commands")
     commands = [
         BotCommand('start', '开始使用机器人'),
         BotCommand('help', '获取帮助信息'),
+        BotCommand('deploy', '部署'),
     ]
-    app.bot.set_my_commands(commands)
+    try:
+        # 设置机器人命令
+        app.bot.set_my_commands(commands)
+        logger.info("Bot commands set successfully.")
+    except Exception as e:
+        logger.exception(f"Failed to set bot commands - error: {e}/n")
+        raise
     logger.info("Bot commands setup completed")
 
 def setup_bot() -> Application:
@@ -151,6 +179,7 @@ def setup_bot() -> Application:
         # 添加处理器
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("deploy", deploy_command))
         application.add_handler(MessageHandler(filters.ALL, lambda update, context: handle_any_message(update, context)))
         application.add_error_handler(error_handler)
         

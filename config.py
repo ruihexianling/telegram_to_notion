@@ -19,8 +19,15 @@ NOTION_TELEGRAM_BOT_WEBHOOK_URL = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_URL')
 NOTION_TELEGRAM_BOT_WEBHOOK_PATH = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_PATH')
 
 # 授权用户列表
+ADMIN_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
+ADMIN_USERS = list(map(int, ADMIN_USERS_STR.split(","))) if ADMIN_USERS_STR else []
+
+
 AUTHORIZED_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
 AUTHORIZED_USERS = list(map(int, AUTHORIZED_USERS_STR.split(","))) if AUTHORIZED_USERS_STR else []
+
+# 
+DEPLOY_URL = os.getenv('DEPLOY_URL')
 
 # 接口密钥，可设定为任意字符串
 API_SECRET = os.getenv('API_SECRET')
