@@ -1,5 +1,6 @@
 """主应用模块"""
 import uvicorn
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -23,7 +24,11 @@ logger = setup_logger(__name__)
 app = FastAPI(
     title="Notion Bot API",
     description="Telegram 消息转发到 Notion 的 API 服务",
-    version="1.0.0"
+    version="1.0.0",
+    # 根据DEBUG环境变量决定是否启用文档
+    docs_url="/docs" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None,
+    redoc_url="/redoc" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None,
+    openapi_url="/openapi.json" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None
 )
 
 # 配置 CORS
