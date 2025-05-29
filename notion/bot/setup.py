@@ -1,12 +1,16 @@
 """Telegram Bot 设置模块"""
 import traceback
 from urllib import request
+import os
+import psutil
+import platform
+from datetime import datetime
 
 import requests
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from .handler import handle_any_message
-from .application import set_application
+from .application import set_application, get_application
 from common_utils import auth_required, admin_required
 from config import *
 from logger import setup_logger
@@ -173,6 +177,93 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Failed to send error message to user: {e}")
 
+@admin_required
+async def get_system_info() -> str:
+    """获取系统信息"""
+    try:
+        # 系统信息
+        system_info = f"🖥 系统信息:\n"
+        system_info += f"• 系统: {platform.system()} {platform.release()}\n"
+        system_info += f"• 架构: {platform.machine()}\n"
+        system_info += f"• Python: {platform.python_version()}\n"
+        
+        # CPU 信息
+        cpu_info = f"\n💻 CPU 信息:\n"
+        cpu_info += f"• 物理核心数: {psutil.cpu_count(logical=False)}\n"
+        cpu_info += f"• 逻辑核心数: {psutil.cpu_count()}\n"
+        cpu_info += f"• CPU 使用率: {psutil.cpu_percent()}%\n"
+        
+        # 内存信息
+        memory = psutil.virtual_memory()
+        memory_info = f"\n🧠 内存信息:\n"
+        memory_info += f"• 总内存: {memory.total / (1024**3):.2f} GB\n"
+        memory_info += f"• 已用内存: {memory.used / (1024**3):.2f} GB\n"
+        memory_info += f"• 内存使用率: {memory.percent}%\n"
+        
+        # 磁盘信息
+        disk = psutil.disk_usage('/')
+        disk_info = f"\n💾 磁盘信息:\n"
+        disk_info += f"• 总空间: {disk.total / (1024**3):.2f} GB\n"
+        disk_info += f"• 已用空间: {disk.used / (1024**3):.2f} GB\n"
+        disk_info += f"• 磁盘使用率: {disk.percent}%\n"
+        
+        # 进程信息
+        process = psutil.Process(os.getpid())
+        process_info = f"\n⚙️ 进程信息:\n"
+        process_info += f"• PID: {process.pid}\n"
+        process_info += f"• 进程内存: {process.memory_info().rss / (1024**2):.2f} MB\n"
+        process_info += f"• CPU 使用率: {process.cpu_percent()}%\n"
+        process_info += f"• 运行时间: {datetime.fromtimestamp(process.create_time()).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        
+        # 网络信息
+        net_info = f"\n🌐 网络信息:\n"
+        net_io = psutil.net_io_counters()
+        net_info += f"• 发送: {net_io.bytes_sent / (1024**2):.2f} MB\n"
+        net_info += f"• 接收: {net_io.bytes_recv / (1024**2):.2f} MB\n"
+        
+        # 系统负载
+        load1, load5, load15 = psutil.getloadavg()
+        load_info = f"\n📊 系统负载:\n"
+        load_info += f"• 1分钟: {load1:.2f}\n"
+        load_info += f"• 5分钟: {load5:.2f}\n"
+        load_info += f"• 15分钟: {load15:.2f}\n"
+        
+        return system_info + cpu_info + memory_info + disk_info + process_info + net_info + load_info
+    except Exception as e:
+        logger.error(f"Failed to get system info: {e}")
+        return f"获取系统信息失败: {str(e)}"
+
+@admin_required
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """处理 /status 命令，显示系统状态"""
+    user = update.effective_user
+    logger.debug(f"Received /status command - username: {user.username} - user_id: {user.id}")
+    
+    try:
+        # 获取系统信息
+        system_info = get_system_info()
+        
+        # 获取 webhook 信息
+        application = get_application()
+        webhook_info = await application.bot.get_webhook_info()
+        webhook_status = f"\n🤖 Bot 状态:\n"
+        webhook_status += f"• Webhook URL: {webhook_info.url}\n"
+        webhook_status += f"• 待处理更新: {webhook_info.pending_update_count}\n"
+        webhook_status += f"• 最后错误: {webhook_info.last_error_date or '无'}\n"
+        webhook_status += f"• 最后错误信息: {webhook_info.last_error_message or '无'}\n"
+        
+        # 发送状态信息
+        await update.message.reply_text(
+            f"📊 系统状态报告\n"
+            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{system_info}\n"
+            f"{webhook_status}"
+        )
+        logger.info(f"Status information sent to user - username: {user.username} - user_id: {user.id}")
+    except Exception as e:
+        logger.error(f"Failed to get status: {e}")
+        await update.message.reply_text(f"获取状态信息失败: {str(e)}")
+
 # === 机器人设置函数 ===
 async def setup_commands(application: Application) -> Application:
     """设置机器人命令
@@ -188,6 +279,7 @@ async def setup_commands(application: Application) -> Application:
         BotCommand('start', '开始使用机器人'),
         BotCommand('help', '获取帮助信息'),
         BotCommand('deploy', '部署'),
+        BotCommand('status', '查看系统状态'),
     ]
     try:
         # 设置机器人命令
@@ -217,6 +309,7 @@ def setup_bot() -> Application:
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("deploy", deploy_command))
+        application.add_handler(CommandHandler("status", status_command))
         application.add_handler(MessageHandler(filters.ALL, lambda update, context: handle_any_message(update, context)))
         application.add_error_handler(error_handler)
         
