@@ -81,7 +81,19 @@ async def api_upload(
         dict: 包含上传结果的字典
     """
     try:
-        logger.info(f"Received upload request - page_id: {page_id} - content: {content[:10]} - files: {len(files)} - urls: {len(urls)} - append_only: {append_only}")
+        # 安全地获取内容预览
+        content_preview = content[:10] if content else "None"
+        # 安全地获取文件数量
+        files_count = len(files) if files else 0
+        # 安全地获取URL数量
+        urls_count = len(urls.split(',')) if urls else 0
+        
+        logger.info(
+            f"Received upload request - page_id: {page_id} - "
+            f"content: {content_preview} - files: {files_count} - "
+            f"urls: {urls_count} - append_only: {append_only}"
+        )
+        
         # 验证签名
         if not x_signature:
             raise HTTPException(status_code=400, detail="Missing signature")

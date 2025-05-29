@@ -6,11 +6,10 @@ from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH
 API_PREFIX = "/api"
 
 # Webhook 路由
-
 NOTION_TELEGRAM_BOT_WEBHOOK = NOTION_TELEGRAM_BOT_WEBHOOK_PATH
 
 # 健康检查路由
-HEALTH_CHECK_PATH = "healthz"
+HEALTH_CHECK_PATH = "/healthz"
 
 # 根路由
 ROOT_PATH = "/"
@@ -21,7 +20,7 @@ ROUTES: Dict[str, str] = {
     "root": ROOT_PATH,
 
     # 健康检查路由
-    "health_check": f"/{HEALTH_CHECK_PATH}",
+    "health_check": f"{HEALTH_CHECK_PATH}",
 
     # API 路由
     # "api_webhook": f"{API_PREFIX}/{WEBHOOK_PATH}",
@@ -29,7 +28,7 @@ ROUTES: Dict[str, str] = {
     # telegram webhook 路由
     "notion_telegram_webhook": f"{NOTION_TELEGRAM_BOT_WEBHOOK}",
     
-    # API 上传页面路由
+    # API 上传路由
     "upload_via_api": f"{API_PREFIX}/upload_via_api",
 }
 
