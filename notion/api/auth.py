@@ -1,11 +1,10 @@
 """API认证模块"""
 from functools import wraps
 from fastapi import HTTPException, Request
-from starlette.responses import JSONResponse
 
 from config import API_SECRET
 from logger import setup_logger
-from .response import api_response, ErrorCode
+from .response import api_response
 
 logger = setup_logger(__name__)
 
@@ -37,7 +36,7 @@ def require_api_key():
             
             # 验证API密钥
             if not api_key or api_key != API_SECRET:
-                logger.warning(f"Invalid API key attempt from IP: {request.client.host}")
+                logger.warning(f"Invalid API key attempt from IP: {request.client.host}, API Key: {api_key}")
                 return api_response(error=HTTPException(
                     status_code=401,
                     detail="Invalid API key"

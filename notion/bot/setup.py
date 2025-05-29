@@ -5,6 +5,7 @@ import os
 import psutil
 import platform
 from datetime import datetime
+import pytz
 
 import requests
 from telegram import Update, BotCommand
@@ -42,7 +43,9 @@ async def after_bot_start(application: Application):
 
 async def before_bot_stop(application: Application):
     """机器人下线前，给所有管理员发送消息"""
-    await send_message_to_admins(application, "🤖 机器人已下线！")
+    # render蓝绿机制，不适用
+    # await send_message_to_admins(application, "🤖 机器人已下线！")
+    pass
 
 # === Webhook 相关函数 ===
 async def setup_webhook(application: Application, webhook_url: str) -> None:
@@ -130,7 +133,6 @@ async def help_command(update: Update, context) -> None:
         '1. 直接发送消息，我会将它们保存到 Notion 中\n'
         '2. 发送文件，我会将它们上传到 Notion\n'
         '3. 发送图片，我会将它们保存到 Notion\n'
-        '4. 发送语音，我会将它们转换为文本并保存'
     )
     logger.info(
         f"Help information sent to user - username: {user.username} - user_id: {user.id}"
@@ -181,6 +183,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def get_system_info() -> str:
     """获取系统信息"""
     try:
+        # 获取北京时间
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        current_time = datetime.now(beijing_tz)
+        
         # 系统信息
         system_info = f"🖥 系统信息:\n"
         system_info += f"• 系统: {platform.system()} {platform.release()}\n"
@@ -213,7 +219,7 @@ async def get_system_info() -> str:
         process_info += f"• PID: {process.pid}\n"
         process_info += f"• 进程内存: {process.memory_info().rss / (1024**2):.2f} MB\n"
         process_info += f"• CPU 使用率: {process.cpu_percent()}%\n"
-        process_info += f"• 运行时间: {datetime.fromtimestamp(process.create_time()).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        process_info += f"• 运行时间: {datetime.fromtimestamp(process.create_time(), beijing_tz).strftime('%Y-%m-%d %H:%M:%S')}\n"
         
         # 网络信息
         net_info = f"\n🌐 网络信息:\n"
@@ -234,35 +240,42 @@ async def get_system_info() -> str:
         return f"获取系统信息失败: {str(e)}"
 
 @admin_required
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """处理 /status 命令，显示系统状态"""
-    user = update.effective_user
-    logger.debug(f"Received /status command - username: {user.username} - user_id: {user.id}")
-    
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /status 命令"""
     try:
         # 获取系统信息
-        system_info = get_system_info()
+        system_info = await get_system_info()
         
-        # 获取 webhook 信息
+        # 获取 bot 状态
         application = get_application()
+        if not application:
+            await update.message.reply_text("❌ 无法获取 bot 状态：应用未初始化")
+            return
+            
         webhook_info = await application.bot.get_webhook_info()
-        webhook_status = f"\n🤖 Bot 状态:\n"
-        webhook_status += f"• Webhook URL: {webhook_info.url}\n"
-        webhook_status += f"• 待处理更新: {webhook_info.pending_update_count}\n"
-        webhook_status += f"• 最后错误: {webhook_info.last_error_date or '无'}\n"
-        webhook_status += f"• 最后错误信息: {webhook_info.last_error_message or '无'}\n"
         
-        # 发送状态信息
-        await update.message.reply_text(
-            f"📊 系统状态报告\n"
-            f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"{system_info}\n"
-            f"{webhook_status}"
+        # 获取北京时间
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        current_time = datetime.now(beijing_tz)
+        
+        # 构建状态消息
+        status_message = (
+            "📊 系统状态报告\n"
+            f"时间: {current_time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"{system_info}\n\n"
+            "🤖 Bot 状态:\n"
+            f"• Webhook URL: {len(webhook_info.url) > 0}\n"
+            f"• 连接数: {webhook_info.max_connections}\n"
+            f"• 连接状态: {webhook_info.has_custom_certificate}\n"
+            f"• 待处理更新: {webhook_info.pending_update_count}\n"
+            f"• 最后错误: {webhook_info.last_error_message or '无'}\n"
+            f"• 最后同步时间: {webhook_info.last_synchronization_error_date or '无'}"
         )
-        logger.info(f"Status information sent to user - username: {user.username} - user_id: {user.id}")
+        
+        await update.message.reply_text(status_message)
     except Exception as e:
-        logger.error(f"Failed to get status: {e}")
-        await update.message.reply_text(f"获取状态信息失败: {str(e)}")
+        logger.error(f"Status command error: {e}")
+        await update.message.reply_text(f"❌ 获取状态信息失败: {e}")
 
 # === 机器人设置函数 ===
 async def setup_commands(application: Application) -> Application:

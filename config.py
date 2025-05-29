@@ -31,6 +31,8 @@ DEPLOY_URL = os.getenv('DEPLOY_URL')
 # 接口密钥，可设定为任意字符串
 API_SECRET = os.getenv('API_SECRET')
 
+# 环境
+ENV = os.getenv('ENV', 'prod')
 # 调试模式
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 

@@ -15,6 +15,7 @@ import psutil
 import socket
 from typing import Optional
 import logging
+from datetime import datetime
 
 from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start, before_bot_stop, send_message_to_admins
@@ -25,7 +26,7 @@ from notion.bot.handler import router as bot_router
 from notion.bot.application import set_application, get_application
 from notion.routes import get_route
 from notion.api.exceptions import setup_exception_handlers
-from config import DEBUG, PORT
+from config import DEBUG, PORT, ENV
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -35,10 +36,11 @@ app = FastAPI(
     title="Notion Bot API",
     description="Telegram 消息转发到 Notion 的 API 服务",
     version="1.0.0",
-    # 根据DEBUG环境变量决定是否启用文档
-    docs_url="/docs" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None,
-    redoc_url="/redoc" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None,
-    openapi_url="/openapi.json" if os.getenv("DEBUG", "").lower() in ("true", "1", "yes") else None
+    debug=DEBUG,
+    # 生产环境下，将这些路由设为 None
+    docs_url=None if ENV == "prod" else "/docs",
+    redoc_url=None if ENV == "prod" else "/redoc",
+    openapi_url=None if ENV == "prod" else "/openapi.json",
 )
 
 # 配置 CORS
@@ -163,7 +165,11 @@ async def startup_event():
 async def shutdown_event():
     """应用关闭时的事件处理"""
     try:
-        logger.info("Shutting down application")
+        # 记录应用关闭时的系统信息
+        logger.info("Application is shutting down...")
+        logger.info("Current process info:")
+        log_system_info()
+        
         # 停止机器人
         application = get_application()
         if not application:
@@ -227,17 +233,45 @@ def handle_exit(signum, frame):
     except Exception:
         signal_name = str(signum)
     
-    logger.info(f"Received signal {signal_name} ({signum}), shutting down gracefully...")
-    logger.info("Current process info:")
-    log_system_info()
-    
-    # 记录父进程信息
+    # 获取发送信号的进程信息
     try:
         parent = psutil.Process(os.getpid()).parent()
         if parent:
-            logger.info(f"Parent process - PID: {parent.pid}, Name: {parent.name()}")
+            parent_info = f" (来自父进程 {parent.pid} - {parent.name()})"
+        else:
+            parent_info = " (无父进程)"
+    except Exception:
+        parent_info = " (无法获取父进程信息)"
+    
+    # 获取当前进程信息
+    try:
+        process = psutil.Process(os.getpid())
+        process_info = f"\n进程信息:\n"
+        process_info += f"• PID: {process.pid}\n"
+        process_info += f"• 进程名: {process.name()}\n"
+        process_info += f"• 命令行: {' '.join(process.cmdline())}\n"
+        process_info += f"• 内存使用: {process.memory_info().rss / (1024**2):.2f} MB\n"
+        process_info += f"• CPU 使用率: {process.cpu_percent()}%\n"
+        process_info += f"• 运行时间: {datetime.fromtimestamp(process.create_time()).strftime('%Y-%m-%d %H:%M:%S')}\n"
     except Exception as e:
-        logger.error(f"Failed to get parent process info: {e}")
+        process_info = f"\n无法获取进程信息: {e}"
+    
+    # 获取系统负载
+    try:
+        load1, load5, load15 = psutil.getloadavg()
+        load_info = f"\n系统负载:\n"
+        load_info += f"• 1分钟: {load1:.2f}\n"
+        load_info += f"• 5分钟: {load5:.2f}\n"
+        load_info += f"• 15分钟: {load15:.2f}\n"
+    except Exception as e:
+        load_info = f"\n无法获取系统负载: {e}"
+    
+    logger.info(
+        f"收到信号 {signal_name} ({signum}){parent_info}\n"
+        f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"{process_info}"
+        f"{load_info}"
+    )
     
     # 这里不需要做任何事情，因为 uvicorn 会处理关闭事件
 
