@@ -209,6 +209,10 @@ class NotionClient:
         
         if external_url:
             # 使用 external_url 模式
+            if not external_url.startswith("https://"):
+                raise ValueError(
+                    "external_url 必须以 https:// 开头"
+                )
             mode = "external_url"
             number_of_parts = None
             payload = {

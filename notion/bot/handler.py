@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import JSONResponse
 
 from ..api.client import NotionClient
+from ..core import buffer
 from ..core.buffer import MessageBuffer
 from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
