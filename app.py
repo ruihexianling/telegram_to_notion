@@ -6,8 +6,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from telegram.ext import Application
 
 from config import *
-from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start
-from config import ADMIN_USERS
+from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start, before_bot_stop
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
 from notion.bot.handler import router as bot_router, set_application
@@ -100,21 +99,37 @@ async def startup_event():
         logger.exception("Failed to start bot")
         raise
 
+_application: Application | None = None
+
+def set_application(application: Application):
+    global _application
+    _application = application
+
+def get_application() -> Application:
+    if _application is None:
+        raise RuntimeError("Application not set.")
+    return _application
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时的事件处理"""
     try:
         logger.info("Shutting down application")
         # 停止机器人
-        application = Application.get_current()
-        
+        application = get_application()
+    
+        logger.debug("Stopping bot application")
+        # send shutdown message to admin users
+        await before_bot_stop(application)
+
         # 移除 webhook
         await remove_webhook(application)
-        
-        logger.debug("Stopping bot application")
-        await application.stop()
-        logger.debug("Shutting down bot application")
-        await application.shutdown()
+
+        # 确保 application 实例在停止前是运行状态
+        if application.running:
+            await application.stop()
+            logger.debug("Shutting down bot application")
+            await application.shutdown()
         
         logger.info("Bot stopped successfully")
         

@@ -6,11 +6,24 @@ import requests
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from .handler import handle_any_message
-from common_utils import auth_required, is_auth_user, admin_required
+from common_utils import auth_required, admin_required
 from config import *
 from logger import setup_logger
-# 配置日志
+
 logger = setup_logger(__name__)
+
+
+async def send_message_to_admins(application: Application, text: str):
+    """发送消息给所有管理员用户"""
+    logger.debug(f"Sending message to admin users: {text}")
+    for admin_id in ADMIN_USERS:
+        try:
+            await application.bot.send_message(chat_id=admin_id, text=text)
+            logger.info(f"Message '{text}' sent to admin: {admin_id}")
+        except Exception as e:
+            logger.error(f"Failed to send message '{text}' to admin {admin_id}: {e}")
+    logger.info("Messages sent to all admins")
+
 
 async def setup_webhook(application: Application, webhook_url: str) -> None:
     """设置 webhook
@@ -167,14 +180,12 @@ async def setup_commands(application) -> Application:
 
 async def after_bot_start(application: Application):
     """机器人上线后，给所有管理员发送消息"""
-    logger.debug("Sending startup message to admin users")
-    for admin_id in ADMIN_USERS:
-        try:
-            await application.bot.send_message(chat_id=admin_id, text="🤖 机器人已上线！")
-            logger.info(f"Startup message sent to admin: {admin_id}")
-        except Exception as e:
-            logger.error(f"Failed to send startup message to admin {admin_id}: {e}")
-    logger.info("Startup messages sent to all admins")
+    await send_message_to_admins(application, "🤖 机器人已上线！")
+
+async def before_bot_stop(application: Application):
+    """机器人下线前，给所有管理员发送消息"""
+    await send_message_to_admins(application, "🤖 机器人已下线！")
+
 
 def setup_bot() -> Application:
     """设置机器人"""
@@ -192,7 +203,6 @@ def setup_bot() -> Application:
         
         logger.info("Bot setup completed successfully")
         return application
-        
     except Exception as e:
         logger.exception("Failed to setup bot")
         raise
