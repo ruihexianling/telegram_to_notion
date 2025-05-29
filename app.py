@@ -189,13 +189,22 @@ async def shutdown_event():
 
 def handle_exit(signum, frame):
     """处理退出信号"""
-    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    import signal as _signal
+    try:
+        signal_name = _signal.Signals(signum).name
+    except Exception:
+        signal_name = str(signum)
+    logger.info(f"Received signal {signal_name} ({signum}), shutting down gracefully...")
     # 这里不需要做任何事情，因为 uvicorn 会处理关闭事件
 
 if __name__ == "__main__":
     # 注册信号处理器
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, handle_exit)
+    if hasattr(signal, 'SIGQUIT'):
+        signal.signal(signal.SIGQUIT, handle_exit)
     
     logger.info(f"Starting server on port {PORT}")
     uvicorn.run(
