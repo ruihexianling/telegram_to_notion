@@ -130,19 +130,19 @@ def get_recent_logs(hours: int = 24, limit: int = 100) -> List[Dict]:
                         
                         # 只保留指定时间范围内的日志
                         if timestamp >= start_time:
-                            logs.append({
-                                'timestamp': timestamp.isoformat(),
-                                'module': module,
-                                'level': level,
-                                'message': message
-                            })
+                            logs.append([
+                                timestamp.isoformat(),
+                                module,
+                                level,
+                                message
+                            ])
                     except Exception as e:
                         continue
         except Exception as e:
             continue
     
     # 按时间戳排序并限制数量
-    logs.sort(key=lambda x: x['timestamp'], reverse=True)
+    logs.sort(key=lambda x: x[0], reverse=True)
     return logs[:limit]
 
 # 创建默认日志记录器

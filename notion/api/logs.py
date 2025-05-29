@@ -19,7 +19,7 @@ async def get_logs(
     hours: int = 24,
     limit: int = 100,
     request: Request = None
-) -> JSONResponse:
+) -> dict:
     """获取近期日志
     
     Args:
@@ -28,19 +28,22 @@ async def get_logs(
         request: FastAPI请求对象，用于获取客户端IP等信息
     
     Returns:
-        JSONResponse: 包含日志内容的响应
+        dict: 包含日志内容的JSON结构化响应
     """
     try:
         # 获取客户端IP
         client_ip = request.client.host if request and request.client else "unknown"
+
         
         # 记录访问日志
-        logger.info(f"Log access request from IP: {client_ip}")
+        logger.info(f"Log access request from IP: {client_ip} API Key: {request.headers.get('X-API-Key')}")
         
         # 获取日志
         logs = get_recent_logs(hours=hours, limit=limit)
+        # 反转日志列表，使得最新日志在最下面
+        logs.reverse()
         
-        return JSONResponse({
+        return {
             "status": "success",
             "data": {
                 "logs": logs,
@@ -49,7 +52,7 @@ async def get_logs(
                 "limit": limit,
                 "timestamp": datetime.now().isoformat()
             }
-        })
+        }
         
     except Exception as e:
         logger.exception(f"Error getting logs: {e}")
