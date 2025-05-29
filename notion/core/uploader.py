@@ -46,10 +46,10 @@ class NotionUploader:
             external_url: 外部文件URL（如果提供，将使用external_url模式）
         """
         try:
-            logger.debug(
+            logger.info(
                 f"Starting message upload to Notion - append_only: {append_only} - "
                 f"has_file: {bool(message.file_path)} - has_content: {bool(message.content)} - "
-                f"external_url: {external_url[:50] + '...' if external_url else None}"
+                f"external_url: {external_url[:10] + '...' if external_url else None}"
             )
             
             # 创建页面或使用现有页面
@@ -95,8 +95,8 @@ class NotionUploader:
             file_name = message.file_name or external_url.split('/')[-1]
             content_type = message.content_type or mimetypes.guess_type(file_name)[0] or 'application/octet-stream'
             
-            logger.debug(
-                f"Processing external URL upload - url: {external_url[:50]}... - "
+            logger.info(
+                f"Processing external URL upload - url: {external_url[:10]}... - "
                 f"content_type: {content_type}"
             )
         else:
@@ -110,7 +110,7 @@ class NotionUploader:
             file_name = message.file_name or file_name
             content_type = message.content_type or content_type
 
-            logger.debug(
+            logger.info(
                 f"Processing file upload - file_extension: {file_extension} - "
                 f"content_type: {content_type} - page_id: {page_id[:8]}..."
             )
@@ -140,7 +140,7 @@ class NotionUploader:
                 external_url
             )
 
-            logger.debug(
+            logger.info(
                 f"File upload object created - upload_mode: {mode} - "
                 f"number_of_parts: {number_of_parts} - content_type: {content_type}"
             )
