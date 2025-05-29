@@ -54,14 +54,14 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     try:
-        logger.debug(
+        logger.info(
             f"Creating Notion client and uploader - username: {update.effective_user.username} - "
             f"user_id: {update.effective_user.id}"
         )
         async with NotionClient(notion_config) as client:
             uploader = NotionUploader(client)
             
-            logger.debug(
+            logger.info(
                 f"Adding message to buffer - username: {update.effective_user.username} - "
                 f"user_id: {update.effective_user.id}"
             )

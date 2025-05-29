@@ -108,7 +108,7 @@ async def remove_webhook(application: Application) -> None:
 async def start(update: Update, context) -> None:
     """处理 /start 命令"""
     user = update.effective_user
-    logger.debug(
+    logger.info(
         f"Received /start command - username: {user.username} - user_id: {user.id}"
     )
 
@@ -124,7 +124,7 @@ async def start(update: Update, context) -> None:
 async def help_command(update: Update, context) -> None:
     """处理 /help 命令"""
     user = update.effective_user
-    logger.debug(
+    logger.info(
         f"Received /help command - username: {user.username} - user_id: {user.id}"
     )
         
@@ -142,7 +142,7 @@ async def help_command(update: Update, context) -> None:
 async def deploy_command(update: Update, context) -> None:
     """执行重新部署实例的命令（管理员专用）"""
     user = update.effective_user
-    logger.debug(
+    logger.info(
         f"Received /deploy command - username: {user.username} - user_id: {user.id}"
     )
     
@@ -178,6 +178,23 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.info("Error message sent to user")
     except Exception as e:
         logger.error(f"Failed to send error message to user: {e}")
+
+def format_datetime(dt: datetime) -> str:
+    """将时间格式化为北京时间字符串
+    
+    Args:
+        dt: 要格式化的时间对象
+        
+    Returns:
+        str: 格式化后的北京时间字符串
+    """
+    if dt is None:
+        return '无'
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    if dt.tzinfo is None:
+        dt = pytz.UTC.localize(dt)
+    beijing_time = dt.astimezone(beijing_tz)
+    return beijing_time.strftime('%Y-%m-%d %H:%M:%S')
 
 async def get_system_info() -> str:
     """获取系统信息"""
@@ -219,7 +236,7 @@ async def get_system_info() -> str:
         process_info += f"• PID: {process.pid}\n"
         process_info += f"• 进程内存: {process.memory_info().rss / (1024**2):.2f} MB\n"
         process_info += f"• CPU 使用率: {process.cpu_percent()}%\n"
-        process_info += f"• 运行时间: {datetime.fromtimestamp(process.create_time(), beijing_tz).strftime('%Y-%m-%d %H:%M:%S')}\n"
+        process_info += f"• 运行时间: {format_datetime(datetime.fromtimestamp(process.create_time()))}\n"
         
         # 网络信息
         net_info = f"\n🌐 网络信息:\n"
@@ -275,8 +292,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• 连接数: {webhook_info.max_connections}\n"
             f"• 连接状态: {webhook_info.has_custom_certificate}\n"
             f"• 待处理更新: {webhook_info.pending_update_count}\n"
+            f"• 最后错误时间: {format_datetime(webhook_info.last_error_date)}\n"
             f"• 最后错误: {webhook_info.last_error_message or '无'}\n"
-            f"• 最后同步时间: {webhook_info.last_synchronization_error_date or '无'}"
+            f"• 最后同步时间: {format_datetime(webhook_info.last_synchronization_error_date)}"
         )
         
         await update.message.reply_text(status_message)
@@ -322,7 +340,7 @@ def setup_bot() -> Application:
         Application: 配置完成的 Telegram 应用实例
     """
     try:
-        logger.debug("Starting bot setup")
+        logger.info("Starting bot setup")
         # 创建应用
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         
@@ -340,5 +358,5 @@ def setup_bot() -> Application:
         logger.info("Bot setup completed successfully")
         return application
     except Exception as e:
-        logger.exception("Failed to setup bot")
+        logger.exception("Failed to setup bot: %s", e)
         raise
