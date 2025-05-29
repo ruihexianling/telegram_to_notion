@@ -9,6 +9,7 @@ import re
 
 from common_utils import verify_signature
 from .auth import require_api_key
+from .response import api_response
 from ..api.client import NotionClient
 from ..core.message import Message
 from ..core.uploader import NotionUploader
@@ -171,18 +172,16 @@ async def api_upload(
                 await uploader.upload_message(message, append_only=True)
             
             # 返回新页面ID
-            return {
-                "status": "success",
+            data = {
                 "page_id": client.parent_page_id,
                 "page_url": f"https://www.notion.so/{client.parent_page_id.replace('-', '')}"
             }
+            return api_response(data=data)
                 
     except Exception as e:
         # 记录详细错误日志
         logger.exception(f"Error uploading content - error: {e}")
-        # 返回简化的错误信息
-        error_category = get_error_category(e)
-        raise HTTPException(status_code=500, detail=error_category)
+        return api_response(error=e)
 
 @router.post(get_route("upload_via_api"))
 @require_api_key()

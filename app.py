@@ -13,6 +13,7 @@ from notion.api.logs import router as logs_router
 from notion.bot.handler import router as bot_router
 from notion.bot.application import set_application, get_application
 from notion.routes import get_route
+from notion.api.exceptions import setup_exception_handlers
 
 from logger import setup_logger
 # 配置日志
@@ -33,6 +34,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 设置全局异常处理器
+setup_exception_handlers(app)
 
 # 添加路由
 app.include_router(webhook_router)
@@ -97,7 +101,11 @@ async def startup_event():
         await after_bot_start(application)
         
         logger.info("Bot started successfully with webhook")
-        
+
+        # 输出所有注册路由
+        logger.info("Registered routes:")
+        for route in app.routes:
+            logger.info(f"  {route.path} - {route.methods}")
     except Exception as e:
         logger.exception("Failed to start bot")
         raise
@@ -123,7 +131,7 @@ async def shutdown_event():
             logger.debug("Shutting down bot application")
             await application.shutdown()
         
-        logger.info("Bot stopped successfully")
+        logger.info("Application shut down successfully")
         
     except Exception as e:
         logger.exception("Error stopping bot")
@@ -135,5 +143,5 @@ if __name__ == "__main__":
         "app:app",
         host="0.0.0.0",
         port=PORT,
-        reload=True
+        reload=DEBUG
     )

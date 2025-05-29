@@ -5,6 +5,7 @@ from starlette.responses import JSONResponse
 
 from config import API_SECRET
 from logger import setup_logger
+from .response import api_response, ErrorCode
 
 logger = setup_logger(__name__)
 
@@ -29,7 +30,7 @@ def require_api_key():
                         break
             
             if not request:
-                raise HTTPException(status_code=500, detail="Request object not found")
+                return api_response(error=HTTPException(status_code=500, detail="Request object not found"))
             
             # 获取请求头中的API密钥
             api_key = request.headers.get('X-API-Key')
@@ -37,10 +38,10 @@ def require_api_key():
             # 验证API密钥
             if not api_key or api_key != API_SECRET:
                 logger.warning(f"Invalid API key attempt from IP: {request.client.host}")
-                raise HTTPException(
+                return api_response(error=HTTPException(
                     status_code=401,
                     detail="Invalid API key"
-                )
+                ))
             
             return await func(*args, **kwargs)
         return wrapper

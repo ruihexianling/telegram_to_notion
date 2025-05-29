@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request, HTTPException
 from logger import get_recent_logs, setup_logger
 from ..routes import get_route
 from .auth import require_api_key
+from .response import api_response
 
 # 配置日志
 logger = setup_logger(__name__)
@@ -31,7 +32,6 @@ async def get_logs(
     try:
         # 获取客户端IP
         client_ip = request.client.host if request and request.client else "unknown"
-
         
         # 记录访问日志
         logger.info(f"Log access request from IP: {client_ip} API Key: {request.headers.get('X-API-Key')}")
@@ -41,17 +41,16 @@ async def get_logs(
         # 反转日志列表，使得最新日志在最下面
         logs.reverse()
         
-        return {
-            "status": "success",
-            "data": {
-                "logs": logs,
-                "total": len(logs),
-                "hours": hours,
-                "limit": limit,
-                "timestamp": datetime.now().isoformat()
-            }
+        data = {
+            "logs": logs,
+            "total": len(logs),
+            "hours": hours,
+            "limit": limit,
+            "timestamp": datetime.now().isoformat()
         }
+        
+        return api_response(data=data)
         
     except Exception as e:
         logger.exception(f"Error getting logs: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        return api_response(error=e) 
