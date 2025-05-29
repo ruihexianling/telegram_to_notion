@@ -58,7 +58,8 @@ def setup_logger(name: str, level: Optional[int] = None, log_third_party: bool =
     # 如果需要记录第三方库的日志，则为第三方库设置单独的处理器和级别
     if log_third_party:
         third_party_logger = logging.getLogger('')  # 获取根记录器
-        third_party_logger.setLevel(logging.INFO)  # 设置第三方库的日志级别
+        third_party_logger_level = logging.DEBUG if DEBUG else logging.WARNING
+        third_party_logger.setLevel(third_party_logger_level)  # 设置第三方库的日志级别
         if not third_party_logger.handlers:
             third_party_handler = logging.StreamHandler(sys.stdout)
             third_party_formatter = CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
