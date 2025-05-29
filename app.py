@@ -8,9 +8,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from telegram.ext import Application
+import os
+import sys
+import atexit
+import psutil
+import socket
+from typing import Optional
+import logging
 
 from config import *
-from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start, before_bot_stop
+from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start, before_bot_stop, send_message_to_admins
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
 from notion.api.logs import router as logs_router
@@ -18,10 +25,10 @@ from notion.bot.handler import router as bot_router
 from notion.bot.application import set_application, get_application
 from notion.routes import get_route
 from notion.api.exceptions import setup_exception_handlers
+from config import DEBUG, PORT
 
-from logger import setup_logger
 # 配置日志
-logger = setup_logger(__name__)
+logger = logging.getLogger(__name__)
 
 # 初始化 FastAPI 应用
 app = FastAPI(
@@ -174,11 +181,11 @@ async def shutdown_event():
             # 确保 application 实例在停止前是运行状态
             if application.running:
                 await application.stop()
-                try:
-                    # 移除 webhook
-                    await remove_webhook(application)
-                except Exception as e:
-                    logger.error(f"Failed to remove webhook: {e}")
+                # try:
+                #     # 移除 webhook
+                #     await remove_webhook(application)
+                # except Exception as e:
+                #     logger.error(f"Failed to remove webhook: {e}")
                 logger.debug("Shutting down bot application")
                 await application.shutdown()
         except Exception as e:
@@ -190,6 +197,28 @@ async def shutdown_event():
         logger.exception("Error during shutdown")
         # 不要抛出异常，确保清理工作完成
 
+def log_system_info():
+    """记录系统资源信息"""
+    try:
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        cpu_percent = process.cpu_percent(interval=1)
+        
+        logger.info(f"System Info - PID: {os.getpid()}")
+        logger.info(f"Memory Usage - RSS: {memory_info.rss / 1024 / 1024:.2f} MB, VMS: {memory_info.vms / 1024 / 1024:.2f} MB")
+        logger.info(f"CPU Usage: {cpu_percent}%")
+        
+        # 记录系统负载
+        load1, load5, load15 = psutil.getloadavg()
+        logger.info(f"System Load - 1min: {load1:.2f}, 5min: {load5:.2f}, 15min: {load15:.2f}")
+        
+        # 记录系统内存
+        system_memory = psutil.virtual_memory()
+        logger.info(f"System Memory - Total: {system_memory.total / 1024 / 1024:.2f} MB, Available: {system_memory.available / 1024 / 1024:.2f} MB")
+        
+    except Exception as e:
+        logger.error(f"Failed to get system info: {e}")
+
 def handle_exit(signum, frame):
     """处理退出信号"""
     import signal as _signal
@@ -197,10 +226,26 @@ def handle_exit(signum, frame):
         signal_name = _signal.Signals(signum).name
     except Exception:
         signal_name = str(signum)
+    
     logger.info(f"Received signal {signal_name} ({signum}), shutting down gracefully...")
+    logger.info("Current process info:")
+    log_system_info()
+    
+    # 记录父进程信息
+    try:
+        parent = psutil.Process(os.getpid()).parent()
+        if parent:
+            logger.info(f"Parent process - PID: {parent.pid}, Name: {parent.name()}")
+    except Exception as e:
+        logger.error(f"Failed to get parent process info: {e}")
+    
     # 这里不需要做任何事情，因为 uvicorn 会处理关闭事件
 
 if __name__ == "__main__":
+    # 记录启动时的系统信息
+    logger.info("Starting application with system info:")
+    log_system_info()
+    
     # 注册信号处理器
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
@@ -208,6 +253,9 @@ if __name__ == "__main__":
         signal.signal(signal.SIGHUP, handle_exit)
     if hasattr(signal, 'SIGQUIT'):
         signal.signal(signal.SIGQUIT, handle_exit)
+    
+    # 注册退出处理
+    atexit.register(lambda: logger.info("Application exited through atexit"))
     
     logger.info(f"Starting server on port {PORT}")
     uvicorn.run(

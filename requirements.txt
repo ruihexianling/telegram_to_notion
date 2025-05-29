@@ -10,3 +10,4 @@ asyncio
 werkzeug
 python-multipart
 requests
+psutil
