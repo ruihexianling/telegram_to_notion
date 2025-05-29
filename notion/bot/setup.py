@@ -69,7 +69,10 @@ async def setup_webhook(application: Application, webhook_url: str) -> None:
                 "my_chat_member",
                 "chat_member",
                 "chat_join_request"
-            ]
+            ],
+            drop_pending_updates=False,  # 丢弃待处理的更新
+            max_connections=100,  # 最大连接数
+            ip_address=None  # 自动检测IP地址
         )
         
         # 获取 webhook 信息

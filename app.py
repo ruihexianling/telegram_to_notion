@@ -1,7 +1,7 @@
 """主应用模块"""
 import uvicorn
-import os
 import asyncio
+import signal
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
@@ -61,7 +61,7 @@ async def root():
 async def health_check():
     """健康检查路由，用于 UptimeRobot 监控"""
     try:
-        logger.info("Performing health check")
+        logger.info(f"Performing health check, from: {request.client.host}, user-agent: {request.headers.get('user-agent')}, x-forwarded-for: {request.headers.get('x-forwarded-for')}")
         application = get_application()
         if not application:
             return JSONResponse(
@@ -166,15 +166,14 @@ async def shutdown_event():
             logger.error(f"Failed to send shutdown message: {e}")
 
         try:
-            # 移除 webhook
-            await remove_webhook(application)
-        except Exception as e:
-            logger.error(f"Failed to remove webhook: {e}")
-
-        try:
             # 确保 application 实例在停止前是运行状态
             if application.running:
                 await application.stop()
+                try:
+                    # 移除 webhook
+                    await remove_webhook(application)
+                except Exception as e:
+                    logger.error(f"Failed to remove webhook: {e}")
                 logger.debug("Shutting down bot application")
                 await application.shutdown()
         except Exception as e:
@@ -186,13 +185,24 @@ async def shutdown_event():
         logger.exception("Error during shutdown")
         # 不要抛出异常，确保清理工作完成
 
+def handle_exit(signum, frame):
+    """处理退出信号"""
+    logger.info(f"Received signal {signum}, shutting down gracefully...")
+    # 这里不需要做任何事情，因为 uvicorn 会处理关闭事件
+
 if __name__ == "__main__":
+    # 注册信号处理器
+    signal.signal(signal.SIGTERM, handle_exit)
+    signal.signal(signal.SIGINT, handle_exit)
+    
     logger.info(f"Starting server on port {PORT}")
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=PORT,
-        reload=DEBUG,  # 只在调试模式下启用热重载
+        reload=False,  # 禁用热重载
         workers=1,  # 使用单个工作进程
-        log_level="info" if not DEBUG else "debug"
+        log_level="info" if not DEBUG else "debug",
+        proxy_headers=True,  # 启用代理头
+        forwarded_allow_ips="*"  # 允许所有代理IP
     )

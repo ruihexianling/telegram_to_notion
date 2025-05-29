@@ -34,7 +34,7 @@ async def get_logs(
         client_ip = request.client.host if request and request.client else "unknown"
         
         # 记录访问日志
-        logger.info(f"Log access request from IP: {client_ip} API Key: {request.headers.get('X-API-Key')}")
+        logger.debug(f"Log access request from IP: {client_ip} API Key: {request.headers.get('X-API-Key')}")
         
         # 获取日志
         logs = get_recent_logs(hours=hours, limit=limit)
