@@ -179,10 +179,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Failed to send error message to user: {e}")
 
-@admin_required
 async def get_system_info() -> str:
     """获取系统信息"""
     try:
+        logger.info("Getting system info...")
         # 获取北京时间
         beijing_tz = pytz.timezone('Asia/Shanghai')
         current_time = datetime.now(beijing_tz)
@@ -236,7 +236,7 @@ async def get_system_info() -> str:
         
         return system_info + cpu_info + memory_info + disk_info + process_info + net_info + load_info
     except Exception as e:
-        logger.error(f"Failed to get system info: {e}")
+        logger.error(f"Failed to get system info: {e}", exc_info=True)
         return f"获取系统信息失败: {str(e)}"
 
 @admin_required
@@ -244,7 +244,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /status 命令"""
     try:
         if not update or not update.message:
-            logger.error("Invalid update object in status command")
+            logger.error("Invalid update object in status command", exc_info=True)
             return
             
         user = update.effective_user
