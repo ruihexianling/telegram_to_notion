@@ -1,4 +1,6 @@
 """主应用模块"""
+from urllib import request
+
 import uvicorn
 import asyncio
 import signal
