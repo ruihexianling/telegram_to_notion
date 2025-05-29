@@ -1,8 +1,6 @@
 """日志API路由模块"""
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
-from starlette.responses import JSONResponse
-
 from logger import get_recent_logs, setup_logger
 from ..routes import get_route
 from .auth import require_api_key

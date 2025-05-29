@@ -35,5 +35,5 @@ API_SECRET = os.getenv('API_SECRET')
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 
 # 日志配置
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.getenv('LOG_DIR', 'logs'))
 PATH_OF_LOGS = os.getenv('PATH_OF_LOGS', 'logs')
