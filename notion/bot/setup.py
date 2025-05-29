@@ -243,6 +243,13 @@ async def get_system_info() -> str:
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /status 命令"""
     try:
+        if not update or not update.message:
+            logger.error("Invalid update object in status command")
+            return
+            
+        user = update.effective_user
+        logger.debug(f"Received /status command - username: {user.username} - user_id: {user.id}")
+        
         # 获取系统信息
         system_info = await get_system_info()
         
@@ -273,9 +280,13 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         await update.message.reply_text(status_message)
+        logger.info(f"Status information sent to user - username: {user.username} - user_id: {user.id}")
     except Exception as e:
-        logger.error(f"Status command error: {e}")
-        await update.message.reply_text(f"❌ 获取状态信息失败: {e}")
+        logger.error(f"Status command error: {e}", exc_info=True)
+        if update and update.message:
+            await update.message.reply_text(f"❌ 获取状态信息失败: {str(e)}")
+        else:
+            logger.error("Cannot send error message: invalid update object")
 
 # === 机器人设置函数 ===
 async def setup_commands(application: Application) -> Application:
