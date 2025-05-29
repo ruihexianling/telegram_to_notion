@@ -4,7 +4,7 @@ from urllib import request
 import uvicorn
 import asyncio
 import signal
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from telegram.ext import Application
@@ -60,10 +60,13 @@ async def root():
 
 @app.get(get_route("health_check"))
 @app.head(get_route("health_check"))
-async def health_check():
+async def health_check(request: Request):
     """健康检查路由，用于 UptimeRobot 监控"""
     try:
-        logger.info(f"Performing health check, from: {request.client.host}, user-agent: {request.headers.get('user-agent')}, x-forwarded-for: {request.headers.get('x-forwarded-for')}")
+        client_host = getattr(request.client, 'host', 'unknown')
+        user_agent = request.headers.get('user-agent', 'unknown')
+        x_forwarded_for = request.headers.get('x-forwarded-for', 'unknown')
+        logger.info(f"Performing health check, from: {client_host}, user-agent: {user_agent}, x-forwarded-for: {x_forwarded_for}")
         application = get_application()
         if not application:
             return JSONResponse(
