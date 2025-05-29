@@ -11,6 +11,7 @@ from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 import config
 from ..routes import get_route
+from .application import get_application
 
 from common_utils import is_auth_user
 
@@ -31,14 +32,7 @@ message_buffer = MessageBuffer()
 # 创建路由
 router = APIRouter()
 
-# 全局 Application 实例
-_application: Optional[Application] = None
-
-def set_application(application: Application):
-    """设置全局 Application 实例"""
-    global _application
-    _application = application
-
+# === 消息处理函数 ===
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """处理所有消息"""
     message = update.message
@@ -97,18 +91,20 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         await message.reply_text(f"❌ {error_msg}")
 
+# === Webhook 处理函数 ===
 @router.post(get_route("notion_telegram_webhook"))
 async def telegram_webhook(request: Request):
     """处理 Telegram webhook 请求"""
     try:
-        if not _application:
+        application = get_application()
+        if not application:
             raise HTTPException(status_code=500, detail="Application not initialized")
             
         # 解析更新
-        update = Update.de_json(await request.json(), _application.bot)
+        update = Update.de_json(await request.json(), application.bot)
         
         # 处理更新
-        await _application.process_update(update)
+        await application.process_update(update)
         
         logger.info(
             f"Processed Telegram update - update_id: {update.update_id}"

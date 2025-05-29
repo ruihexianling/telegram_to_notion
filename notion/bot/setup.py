@@ -6,13 +6,21 @@ import requests
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from .handler import handle_any_message
+from .application import set_application
 from common_utils import auth_required, admin_required
 from config import *
 from logger import setup_logger
 
 logger = setup_logger(__name__)
 
+# === 配置 Notion 参数 ===
+NOTION_CONFIG = {
+    'NOTION_KEY': NOTION_KEY,
+    'NOTION_VERSION': NOTION_VERSION,
+    'PAGE_ID': PAGE_ID
+}
 
+# === 管理员消息相关函数 ===
 async def send_message_to_admins(application: Application, text: str):
     """发送消息给所有管理员用户"""
     logger.debug(f"Sending message to admin users: {text}")
@@ -24,7 +32,15 @@ async def send_message_to_admins(application: Application, text: str):
             logger.error(f"Failed to send message '{text}' to admin {admin_id}: {e}")
     logger.info("Messages sent to all admins")
 
+async def after_bot_start(application: Application):
+    """机器人上线后，给所有管理员发送消息"""
+    await send_message_to_admins(application, "🤖 机器人已上线！")
 
+async def before_bot_stop(application: Application):
+    """机器人下线前，给所有管理员发送消息"""
+    await send_message_to_admins(application, "🤖 机器人已下线！")
+
+# === Webhook 相关函数 ===
 async def setup_webhook(application: Application, webhook_url: str) -> None:
     """设置 webhook
     
@@ -78,28 +94,7 @@ async def remove_webhook(application: Application) -> None:
         logger.exception(f"Failed to remove webhook - error: {e}")
         raise
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log the error and send a message to the user."""
-    logger.error(
-        f"Exception while handling an update - update_id: {getattr(update, 'update_id', None)} - "
-        f"user_id: {getattr(update.effective_user, 'id', None) if update and hasattr(update, 'effective_user') else None}",
-        exc_info=context.error
-    )
-
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text("发生了一个错误，请稍后再试。")
-            logger.info("Error message sent to user")
-    except Exception as e:
-        logger.error(f"Failed to send error message to user: {e}")
-
-# === 配置 Notion 参数 ===
-NOTION_CONFIG = {
-    'NOTION_KEY': NOTION_KEY,
-    'NOTION_VERSION': NOTION_VERSION,
-    'PAGE_ID': PAGE_ID
-}
-
+# === 命令处理函数 ===
 async def start(update: Update, context) -> None:
     """处理 /start 命令"""
     user = update.effective_user
@@ -160,8 +155,31 @@ async def deploy_command(update: Update, context) -> None:
         f"Deploy command executed - username: {user.username} - user_id: {user.id}"
     )
 
-async def setup_commands(application) -> Application:
-    """设置机器人命令"""
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a message to the user."""
+    logger.error(
+        f"Exception while handling an update - update_id: {getattr(update, 'update_id', None)} - "
+        f"user_id: {getattr(update.effective_user, 'id', None) if update and hasattr(update, 'effective_user') else None}",
+        exc_info=context.error
+    )
+
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text("发生了一个错误，请稍后再试。")
+            logger.info("Error message sent to user")
+    except Exception as e:
+        logger.error(f"Failed to send error message to user: {e}")
+
+# === 机器人设置函数 ===
+async def setup_commands(application: Application) -> Application:
+    """设置机器人命令
+    
+    Args:
+        application: Telegram 应用实例
+        
+    Returns:
+        Application: 设置完成后的应用实例
+    """
     logger.debug("Setting up bot commands")
     commands = [
         BotCommand('start', '开始使用机器人'),
@@ -178,21 +196,19 @@ async def setup_commands(application) -> Application:
     logger.info("Bot commands setup completed")
     return application
 
-async def after_bot_start(application: Application):
-    """机器人上线后，给所有管理员发送消息"""
-    await send_message_to_admins(application, "🤖 机器人已上线！")
-
-async def before_bot_stop(application: Application):
-    """机器人下线前，给所有管理员发送消息"""
-    await send_message_to_admins(application, "🤖 机器人已下线！")
-
-
 def setup_bot() -> Application:
-    """设置机器人"""
+    """设置机器人
+    
+    Returns:
+        Application: 配置完成的 Telegram 应用实例
+    """
     try:
         logger.debug("Starting bot setup")
         # 创建应用
         application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        
+        # 设置全局应用实例
+        set_application(application)
         
         # 添加处理器
         application.add_handler(CommandHandler("start", start))

@@ -9,7 +9,9 @@ from config import *
 from notion.bot.setup import setup_bot, setup_commands, setup_webhook, remove_webhook, after_bot_start, before_bot_stop
 from notion.webhook.handler import router as webhook_router
 from notion.api.handler import router as api_router
-from notion.bot.handler import router as bot_router, set_application
+from notion.api.logs import router as logs_router
+from notion.bot.handler import router as bot_router
+from notion.bot.application import set_application, get_application
 from notion.routes import get_route
 
 from logger import setup_logger
@@ -35,6 +37,7 @@ app.add_middleware(
 # 添加路由
 app.include_router(webhook_router)
 app.include_router(api_router)
+app.include_router(logs_router)
 app.include_router(bot_router)
 
 # API 路由
@@ -98,17 +101,6 @@ async def startup_event():
     except Exception as e:
         logger.exception("Failed to start bot")
         raise
-
-_application: Application | None = None
-
-def set_application(application: Application):
-    global _application
-    _application = application
-
-def get_application() -> Application:
-    if _application is None:
-        raise RuntimeError("Application not set.")
-    return _application
 
 @app.on_event("shutdown")
 async def shutdown_event():

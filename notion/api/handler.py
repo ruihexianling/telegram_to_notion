@@ -8,6 +8,7 @@ import json
 import re
 
 from common_utils import verify_signature
+from .auth import require_api_key
 from ..api.client import NotionClient
 from ..core.message import Message
 from ..core.uploader import NotionUploader
@@ -93,15 +94,7 @@ async def api_upload(
             f"content: {content_preview} - files: {files_count} - "
             f"urls: {urls_count} - append_only: {append_only}"
         )
-        
-        # 验证签名
-        if not x_signature:
-            raise HTTPException(status_code=400, detail="Missing signature")
-            
-        # 验证签名
-        if not verify_signature(x_signature, request):
-            raise HTTPException(status_code=401, detail="Invalid signature")
-            
+         
         if not page_id:
             # 如果没有提供 page_id，使用默认的
             page_id = PAGE_ID
@@ -192,6 +185,7 @@ async def api_upload(
         raise HTTPException(status_code=500, detail=error_category)
 
 @router.post(get_route("upload_via_api"))
+@require_api_key()
 async def upload_via_api(
     request: Request,
     page_id: Optional[str] = Form(None),

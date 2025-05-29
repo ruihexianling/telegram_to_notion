@@ -22,14 +22,17 @@ NOTION_TELEGRAM_BOT_WEBHOOK_PATH = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_PATH')
 ADMIN_USERS_STR = os.environ.get("ADMIN_USERS", "")
 ADMIN_USERS = list(map(int, ADMIN_USERS_STR.split(","))) if ADMIN_USERS_STR else []
 
-
 AUTHORIZED_USERS_STR = os.environ.get("AUTHORIZED_USERS", "")
 AUTHORIZED_USERS = list(map(int, AUTHORIZED_USERS_STR.split(","))) if AUTHORIZED_USERS_STR else []
 
-# 
+# 部署URL
 DEPLOY_URL = os.getenv('DEPLOY_URL')
 
 # 接口密钥，可设定为任意字符串
 API_SECRET = os.getenv('API_SECRET')
 
+# 调试模式
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
+
+# 日志配置
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')

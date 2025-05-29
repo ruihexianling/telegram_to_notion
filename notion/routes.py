@@ -30,6 +30,9 @@ ROUTES: Dict[str, str] = {
     
     # API 上传路由
     "upload_via_api": f"{API_PREFIX}/upload_via_api",
+
+    # 日志API路由
+    "notion_telegram_logs": f"{API_PREFIX}/logs",
 }
 
 def get_route(route_name: str) -> str:
