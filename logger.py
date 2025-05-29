@@ -4,6 +4,7 @@ import sys
 import os
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
+import pytz
 from config import DEBUG, LOG_DIR
 
 def setup_logger(name: str, level: Optional[int] = None, log_third_party: bool = False) -> logging.Logger:
@@ -60,7 +61,7 @@ def setup_logger(name: str, level: Optional[int] = None, log_third_party: bool =
         third_party_logger.setLevel(logging.INFO)  # 设置第三方库的日志级别
         if not third_party_logger.handlers:
             third_party_handler = logging.StreamHandler(sys.stdout)
-            third_party_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            third_party_formatter = CustomFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             third_party_handler.setFormatter(third_party_formatter)
             third_party_logger.addHandler(third_party_handler)
             
@@ -75,6 +76,22 @@ def setup_logger(name: str, level: Optional[int] = None, log_third_party: bool =
     return logger
 
 class CustomFormatter(logging.Formatter):
+    """自定义日志格式化器，支持北京时间"""
+    
+    def __init__(self, fmt=None, datefmt=None, style='%'):
+        super().__init__(fmt, datefmt, style)
+        self.beijing_tz = pytz.timezone('Asia/Shanghai')
+    
+    def formatTime(self, record, datefmt=None):
+        """重写时间格式化方法，转换为北京时间"""
+        ct = datetime.fromtimestamp(record.created)
+        if ct.tzinfo is None:
+            ct = pytz.UTC.localize(ct)
+        beijing_time = ct.astimezone(self.beijing_tz)
+        if datefmt:
+            return beijing_time.strftime(datefmt)
+        return beijing_time.strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+    
     def format(self, record):
         log_message = super().format(record)
         
@@ -103,7 +120,8 @@ def get_recent_logs(hours: int = 24, limit: int = 100) -> List[Dict]:
         List[Dict]: 日志记录列表，每条记录包含时间、级别、模块、消息等信息
     """
     logs = []
-    start_time = datetime.now() - timedelta(hours=hours)
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    start_time = datetime.now(beijing_tz) - timedelta(hours=hours)
     
     # 遍历日志目录下的所有日志文件
     for filename in os.listdir(LOG_DIR):
@@ -125,8 +143,9 @@ def get_recent_logs(hours: int = 24, limit: int = 100) -> List[Dict]:
                         level = parts[2]
                         message = ' - '.join(parts[3:])
                         
-                        # 解析时间戳
+                        # 解析时间戳（已经是北京时间）
                         timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                        timestamp = beijing_tz.localize(timestamp)
                         
                         # 只保留指定时间范围内的日志
                         if timestamp >= start_time:
