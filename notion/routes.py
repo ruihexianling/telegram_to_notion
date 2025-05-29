@@ -1,6 +1,6 @@
 """路由配置模块"""
 from typing import Dict
-from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH
+from config import NOTION_TELEGRAM_BOT_WEBHOOK_PATH, PATH_OF_LOGS
 
 # API 路由前缀
 API_PREFIX = "/api"
@@ -32,7 +32,7 @@ ROUTES: Dict[str, str] = {
     "upload_via_api": f"{API_PREFIX}/upload_via_api",
 
     # 日志API路由
-    "notion_telegram_logs": f"{API_PREFIX}/logs",
+    "notion_telegram_logs": f"{API_PREFIX}/{PATH_OF_LOGS}",
 }
 
 def get_route(route_name: str) -> str:
