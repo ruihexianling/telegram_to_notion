@@ -2,7 +2,7 @@
 import datetime
 import pytz
 from typing import Optional, List, Union
-from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form, Header
+from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form, Header, status
 import re
 
 from .auth import require_api_key
@@ -13,6 +13,7 @@ from ..core.uploader import NotionUploader
 from ..utils.config import NotionConfig
 from ..routes import get_route
 from ..utils.file_utils import save_upload_file_temporarily, cleanup_temp_file
+from ..api.exceptions import NotionFileUploadError
 
 from logger import setup_logger
 from config import *
@@ -43,6 +44,8 @@ def get_error_category(error: Exception) -> str:
     """
     if isinstance(error, HTTPException):
         return "请求错误"
+    elif isinstance(error, NotionFileUploadError):
+        return "文件上传错误"
     elif "ClientResponseError" in str(type(error)):
         return "Notion API 错误"
     elif "ConnectionError" in str(type(error)):
@@ -55,6 +58,32 @@ def get_error_category(error: Exception) -> str:
         return "权限错误"
     else:
         return "服务器内部错误"
+
+def get_http_status_code(error: Exception) -> int:
+    """获取HTTP状态码
+    
+    Args:
+        error: 异常对象
+        
+    Returns:
+        int: HTTP状态码
+    """
+    if isinstance(error, HTTPException):
+        return error.status_code
+    elif isinstance(error, NotionFileUploadError):
+        return status.HTTP_400_BAD_REQUEST
+    elif "ClientResponseError" in str(type(error)):
+        return status.HTTP_502_BAD_GATEWAY
+    elif "ConnectionError" in str(type(error)):
+        return status.HTTP_503_SERVICE_UNAVAILABLE
+    elif "TimeoutError" in str(type(error)):
+        return status.HTTP_504_GATEWAY_TIMEOUT
+    elif "FileNotFoundError" in str(type(error)):
+        return status.HTTP_404_NOT_FOUND
+    elif "PermissionError" in str(type(error)):
+        return status.HTTP_403_FORBIDDEN
+    else:
+        return status.HTTP_500_INTERNAL_SERVER_ERROR
 
 async def api_upload(
     request: Request,
@@ -166,20 +195,27 @@ async def api_upload(
                 # 处理URL列表（逗号分隔）
                 url_list = [url.strip() for url in urls.split(',') if url.strip()]
                 for url in url_list:
-                    # 创建消息对象
-                    message = Message(
-                        content=None,
-                        file_path=None,
-                        file_name=None,
-                        content_type=None,
-                        external_url=url,
-                        source=source or 'API',
-                        tags=tags.split(',') if tags else [],
-                        is_pinned=is_pinned,
-                        source_url=source_url,
-                        created_time=now_beijing
-                    )
-                    await uploader.upload_message(message, append_only=True, external_url=url)
+                    try:
+                        # 创建消息对象
+                        message = Message(
+                            content=None,
+                            file_path=None,
+                            file_name=None,
+                            content_type=None,
+                            external_url=url,
+                            source=source or 'API',
+                            tags=tags.split(',') if tags else [],
+                            is_pinned=is_pinned,
+                            source_url=source_url,
+                            created_time=now_beijing
+                        )
+                        await uploader.upload_message(message, append_only=True, external_url=url)
+                    except Exception as e:
+                        logger.error(f"URL上传失败: {url}, 错误: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"URL上传失败: {url}, 错误: {str(e)}"
+                        )
             elif files:
                 # 处理文件列表
                 for file in files:
@@ -201,6 +237,12 @@ async def api_upload(
                         
                         # 上传消息
                         await uploader.upload_message(message, append_only=True)
+                    except Exception as e:
+                        logger.error(f"文件上传失败: {file_name}, 错误: {str(e)}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"文件上传失败: {file_name}, 错误: {str(e)}"
+                        )
                     finally:
                         # 清理临时文件
                         if file_path:
@@ -213,10 +255,19 @@ async def api_upload(
             }
             return api_response(data=data)
                 
+    except HTTPException as e:
+        # 记录详细错误日志
+        logger.exception(f"HTTP错误: {e.detail}")
+        raise e
     except Exception as e:
         # 记录详细错误日志
-        logger.exception(f"Error uploading content - error: {e}")
-        return api_response(error=e)
+        error_category = get_error_category(e)
+        error_message = str(e)
+        logger.exception(f"{error_category}: {error_message}")
+        raise HTTPException(
+            status_code=get_http_status_code(e),
+            detail=f"{error_category}: {error_message}"
+        )
 
 @router.post(get_route("upload_via_api"))
 @require_api_key()
