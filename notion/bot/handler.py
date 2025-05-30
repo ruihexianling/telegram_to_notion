@@ -153,13 +153,29 @@ async def railway_webhook(request: Request):
             
         # 构建通知消息
         message = (
-            "🚨 Railway 通知\n\n"
-            f"项目: {data.get('project', {}).get('name', 'Unknown')}\n"
-            f"环境: {data.get('environment', {}).get('name', 'Unknown')}\n"
-            f"事件: {data.get('event', 'Unknown')}\n"
-            f"状态: {data.get('status', 'Unknown')}\n"
-            f"时间: {beijing_time}\n"
+            f"🚨 Railway {data.get('type', 'Unknown')} 通知\n\n"
+            f"📦 项目信息:\n"
+            f"• 名称: {data.get('project', {}).get('name', 'Unknown')}\n"
+            f"• 描述: {data.get('project', {}).get('description', 'Unknown')}\n"
+            f"• 创建时间: {format_datetime(datetime.fromisoformat(data.get('project', {}).get('createdAt', '').replace('Z', '+00:00'))) if data.get('project', {}).get('createdAt') else 'Unknown'}\n\n"
+            f"🌍 环境信息:\n"
+            f"• 名称: {data.get('environment', {}).get('name', 'Unknown')}\n\n"
+            f"📝 事件详情:\n"
+            f"• 类型: {data.get('type', 'Unknown')}\n"
         )
+
+        # 根据不同类型添加特定信息
+        if data.get('type') == 'DEPLOY' and data.get('deployment', {}).get('creator'):
+            message += f"• 操作者: {data['deployment']['creator'].get('name', 'Unknown')}\n"
+        elif data.get('type') == 'BUILD':
+            message += f"• 构建状态: {data.get('status', 'Unknown')}\n"
+        elif data.get('type') == 'SERVICE':
+            message += f"• 服务状态: {data.get('status', 'Unknown')}\n"
+        elif data.get('type') == 'DOMAIN':
+            message += f"• 域名状态: {data.get('status', 'Unknown')}\n"
+            
+        # 添加时间信息
+        message += f"• 时间: {beijing_time}\n"
         
         # 如果有错误信息，添加到消息中
         if data.get('error'):
@@ -168,7 +184,7 @@ async def railway_webhook(request: Request):
         # 发送通知给管理员
         await send_message_to_admins(application, message)
         
-        logger.info(f"Processed Railway webhook - event: {data.get('event')}")
+        logger.info(f"Processed Railway webhook - type: {data.get('type')}")
         return JSONResponse({"status": "success"})
         
     except json.JSONDecodeError:
