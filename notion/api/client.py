@@ -7,6 +7,7 @@ from ..utils.config import NotionConfig
 from logger import setup_logger
 import json
 import asyncio
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
@@ -120,24 +121,48 @@ class NotionClient:
             return response_data
         except aiohttp.ClientResponseError as e:
             response_body = await response.text()
-            logger.error(
-                f"Notion API response error - status_code: {e.status} - "
-                f"endpoint: {url.split('/')[-1]} - "
-                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'} - "
-                f"response_body: {response_body} - "
-                f"request_url: {url} - "
-                f"request_method: {e.request_info.method} - "
-                f"request_headers: {json.dumps(dict(e.request_info.headers), ensure_ascii=False)}"
-            )
+            try:
+                error_data = json.loads(response_body)
+                error_message = error_data.get('message', '未知错误')
+                error_code = error_data.get('code', 'unknown_error')
+                
+                # 格式化错误信息
+                if error_code == 'validation_error':
+                    # 处理验证错误，将多个错误信息分行显示
+                    error_details = error_message.split('. ')
+                    formatted_error = '\n'.join([f"- {detail}" for detail in error_details if detail])
+                    error_message = f"验证错误:\n{formatted_error}"
+                
+                logger.error(
+                    f"Notion API response error - status_code: {e.status} - "
+                    f"endpoint: {url.split('/')[-1]} - "
+                    f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'} - "
+                    f"error_code: {error_code} - "
+                    f"error_message: {error_message} - "
+                    f"request_url: {url} - "
+                    f"request_method: {e.request_info.method} - "
+                    f"request_headers: {json.dumps(dict(e.request_info.headers), ensure_ascii=False)}"
+                )
+            except json.JSONDecodeError:
+                logger.error(
+                    f"Notion API response error - status_code: {e.status} - "
+                    f"endpoint: {url.split('/')[-1]} - "
+                    f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'} - "
+                    f"response_body: {response_body} - "
+                    f"request_url: {url} - "
+                    f"request_method: {e.request_info.method} - "
+                    f"request_headers: {json.dumps(dict(e.request_info.headers), ensure_ascii=False)}"
+                )
+            
             if 'file_uploads' in url:
                 raise NotionFileUploadError(
-                    f"Notion 文件上传失败: {e.message}",
+                    f"Notion 文件上传失败: {error_message if 'error_message' in locals() else e.message}",
                     status_code=e.status,
                     response_body=response_body
                 )
             else:
                 raise NotionPageError(
-                    f"Notion 页面操作失败: {e.message}",
+                    f"Notion 页面操作失败: {error_message if 'error_message' in locals() else e.message}",
                     status_code=e.status,
                     response_body=response_body
                 )
@@ -155,13 +180,15 @@ class NotionClient:
             title: 页面标题
             content_text: 页面内容文本
             properties: 页面属性，包括：
-                - source: 来源
-                - tags: 标签列表
-                - is_pinned: 是否置顶
-                - source_url: 源链接
-                - created_time: 创建时间
-                - file_count: 文件数量
-                - link_count: 链接数量
+                - 来源: 来源（select 类型）
+                - 标签: 标签列表
+                - 是否置顶: 是否置顶
+                - 源链接: 源链接
+                - 创建时间: 创建时间
+                - 更新时间: 更新时间
+                - 文件数量: 文件数量
+                - 链接数量: 链接数量
+                - 状态: 状态
             parent_page_id: 父页面 ID，如果提供则使用此 ID，否则使用默认的 parent_page_id
         """
         logger.debug(
@@ -174,9 +201,10 @@ class NotionClient:
         
         # 构建基础属性
         page_properties = {
-            "title": {
+            "标题": {
                 "title": [
                     {
+                        "type": "text",
                         "text": {
                             "content": title
                         }
@@ -187,56 +215,75 @@ class NotionClient:
         
         # 添加自定义属性
         if properties:
-            if properties.get('source'):
-                page_properties['source'] = {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": properties['source']
-                            }
-                        }
-                    ]
-                }
-            
-            if properties.get('tags'):
-                page_properties['tags'] = {
-                    "multi_select": [
-                        {"name": tag} for tag in properties['tags']
-                    ]
-                }
-            
-            if 'is_pinned' in properties:
-                page_properties['is_pinned'] = {
-                    "checkbox": properties['is_pinned']
-                }
-            
-            if properties.get('source_url'):
-                page_properties['source_url'] = {
-                    "url": properties['source_url']
-                }
-            
-            if properties.get('created_time'):
-                page_properties['created_time'] = {
-                    "date": {
-                        "start": properties['created_time'].isoformat()
+            # 来源
+            if properties.get('来源'):
+                page_properties['来源'] = {
+                    "select": {
+                        "name": properties['来源']
                     }
                 }
             
-            if 'file_count' in properties:
-                page_properties['file_count'] = {
-                    "number": properties['file_count']
+            # 标签
+            if properties.get('标签'):
+                page_properties['标签'] = {
+                    "multi_select": [
+                        {"name": tag} for tag in properties['标签']
+                    ]
                 }
             
-            if 'link_count' in properties:
-                page_properties['link_count'] = {
-                    "number": properties['link_count']
+            # 置顶状态
+            if '是否置顶' in properties:
+                page_properties['是否置顶'] = {
+                    "checkbox": properties['是否置顶']
+                }
+            
+            # 源链接
+            if properties.get('源链接'):
+                page_properties['源链接'] = {
+                    "url": properties['源链接']
+                }
+            
+            # 创建时间
+            if properties.get('创建时间'):
+                page_properties['创建时间'] = {
+                    "date": {
+                        "start": properties['创建时间'].isoformat()
+                    }
+                }
+            
+            # 更新时间
+            if properties.get('更新时间'):
+                page_properties['更新时间'] = {
+                    "date": {
+                        "start": properties['更新时间'].isoformat()
+                    }
+                }
+            
+            # 文件数量
+            if '文件数量' in properties:
+                page_properties['文件数量'] = {
+                    "number": properties['文件数量']
+                }
+            
+            # 链接数量
+            if '链接数量' in properties:
+                page_properties['链接数量'] = {
+                    "number": properties['链接数量']
+                }
+            
+            # 状态
+            if properties.get('状态'):
+                page_properties['状态'] = {
+                    "select": {
+                        "name": properties['状态']
+                    }
                 }
         
         # 构建请求体
         payload = {
             "parent": {
-                "type": "page_id",
-                "page_id": parent_page_id or self.parent_page_id
+                "type": "database_id",
+                "database_id": parent_page_id or self.parent_page_id
             },
             "properties": page_properties
         }
@@ -586,6 +633,105 @@ class NotionClient:
                 f"Failed to append file block - error_type: {type(e).__name__} - "
                 f"page_id: {page_id[:8]}... - block_type: {block_type} - "
                 f"mime_type: {file_mime_type} - payload: {json.dumps(payload, ensure_ascii=False)}",
+                exc_info=True
+            )
+            raise
+
+    async def get_page(self, page_id: str) -> Dict[str, Any]:
+        """获取页面信息
+        
+        Args:
+            page_id: 页面ID
+            
+        Returns:
+            Dict[str, Any]: 页面信息
+        """
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        logger.debug(f"Getting page info - page_id: {page_id[:8]}...")
+        
+        try:
+            response = await self._make_request(url, method='GET')
+            logger.info(f"Successfully got page info - page_id: {page_id[:8]}...")
+            return response
+        except Exception as e:
+            logger.error(
+                f"Failed to get page info - error_type: {type(e).__name__} - "
+                f"page_id: {page_id[:8]}...",
+                exc_info=True
+            )
+            raise
+
+    async def update_page(self, page_id: str, properties: Dict[str, Any]) -> Dict[str, Any]:
+        """更新页面属性
+        
+        Args:
+            page_id: 页面ID
+            properties: 要更新的属性
+            
+        Returns:
+            Dict[str, Any]: 更新后的页面信息
+        """
+        url = f"https://api.notion.com/v1/pages/{page_id}"
+        
+        # 创建一个用于日志记录的属性副本，将 datetime 转换为字符串
+        log_properties = {}
+        for key, value in properties.items():
+            if isinstance(value, datetime):
+                log_properties[key] = value.isoformat()
+            else:
+                log_properties[key] = value
+                
+        logger.debug(
+            f"Updating page properties - page_id: {page_id[:8]}... - "
+            f"properties: {json.dumps(log_properties, ensure_ascii=False)}"
+        )
+        
+        try:
+            # 构建 payload
+            payload = {
+                "properties": {}
+            }
+            
+            # 处理每个属性
+            for key, value in properties.items():
+                if isinstance(value, datetime):
+                    # 处理日期时间类型
+                    payload["properties"][key] = {
+                        "date": {
+                            "start": value.isoformat()
+                        }
+                    }
+                elif isinstance(value, (int, float)):
+                    # 处理数字类型
+                    payload["properties"][key] = {
+                        "number": value
+                    }
+                elif isinstance(value, str):
+                    # 处理字符串类型
+                    payload["properties"][key] = {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": value
+                                }
+                            }
+                        ]
+                    }
+                else:
+                    # 其他类型直接使用
+                    payload["properties"][key] = value
+            
+            response = await self._make_request(url, method='PATCH', payload=payload)
+            logger.info(
+                f"Successfully updated page properties - page_id: {page_id[:8]}... - "
+                f"properties: {json.dumps(log_properties, ensure_ascii=False)}"
+            )
+            return response
+        except Exception as e:
+            logger.error(
+                f"Failed to update page properties - error_type: {type(e).__name__} - "
+                f"page_id: {page_id[:8]}... - properties: {json.dumps(log_properties, ensure_ascii=False)}",
                 exc_info=True
             )
             raise

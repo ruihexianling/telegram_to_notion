@@ -85,6 +85,10 @@ async def api_upload(
         source_url: 源链接
     """
     try:
+        # 获取北京时区的当前时间
+        beijing_tz = pytz.timezone('Asia/Shanghai')
+        now_beijing = datetime.datetime.now(beijing_tz)
+        
         # 安全地获取内容预览
         content_preview = content[:10] if content else "None"
         # 安全地获取文件数量
@@ -100,8 +104,8 @@ async def api_upload(
         )
          
         if not page_id:
-            # 如果没有提供 page_id，使用默认的
-            page_id = PAGE_ID
+            # 如果没有提供 page_id，使用默认的接口专用page
+            page_id = API_PAGE_ID
             
         # 创建 Notion 客户端
         config = NotionConfig({
@@ -119,19 +123,17 @@ async def api_upload(
                 client.parent_page_id = page_id
             else:
                 # 非追加模式：创建新页面
-                beijing_tz = pytz.timezone('Asia/Shanghai')
-                now_beijing = datetime.datetime.now(beijing_tz)
                 title = content[:15] if content else "from_api_" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
                 
                 # 构建页面属性
                 properties = {
-                    'source': source or 'API',
-                    'tags': tags.split(',') if tags else [],
-                    'is_pinned': is_pinned,
-                    'source_url': source_url,
-                    'created_time': now_beijing,
-                    'file_count': files_count,
-                    'link_count': urls_count
+                    '来源': source or 'API',
+                    '标签': tags.split(',') if tags else [],
+                    '是否置顶': is_pinned,
+                    '源链接': source_url,
+                    '创建时间': now_beijing,
+                    '文件数量': 0,  # 初始化为0，让 Message 对象来计算实际数量
+                    '链接数量': 0   # 初始化为0，让 Message 对象来计算实际数量
                 }
                 
                 new_page_id = await client.create_page(title, properties=properties)

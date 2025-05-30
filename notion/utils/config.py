@@ -14,34 +14,8 @@ class NotionConfig:
         self._validate_config()
         logger.info(
             f"NotionConfig initialized - version: {self.notion_version} - "
-            f"page_id: {self.parent_page_id[:8]}..."
+            f"database_id: {self.parent_page_id}"
         )
-
-    def _format_page_id(self, page_id: str) -> str:
-        """格式化页面 ID，添加连字符
-        
-        Args:
-            page_id: 原始页面 ID
-            
-        Returns:
-            str: 格式化后的页面 ID
-        """
-        # 如果已经包含连字符，直接返回
-        if '-' in page_id:
-            logger.debug(f"Page ID already contains hyphens: {page_id}")
-            return page_id
-            
-        # 移除所有连字符
-        page_id = page_id.replace('-', '')
-        
-        # 检查长度
-        if len(page_id) != 32:
-            raise NotionConfigError(f"无效的页面 ID 长度: {len(page_id)}")
-            
-        # 添加连字符
-        formatted_id = f"{page_id[:8]}-{page_id[8:12]}-{page_id[12:16]}-{page_id[16:20]}-{page_id[20:]}"
-        logger.debug(f"Formatted page ID - original: {page_id} - formatted: {formatted_id}")
-        return formatted_id
 
     def _validate_config(self) -> None:
         """验证配置是否完整"""
@@ -55,13 +29,10 @@ class NotionConfig:
         if not notion_key.startswith('ntn_'):
             raise NotionConfigError("Notion API Key 必须以 'ntn_' 开头")
 
-        # 验证并格式化 PAGE_ID
+        # 验证 PAGE_ID 格式
         page_id = self._config['PAGE_ID']
-        try:
-            self._config['PAGE_ID'] = self._format_page_id(page_id)
-            logger.info(f"Page ID validated and formatted: {self._config['PAGE_ID']}")
-        except NotionConfigError as e:
-            raise NotionConfigError(f"无效的 PAGE_ID 格式: {page_id} - {str(e)}")
+        if not page_id:
+            raise NotionConfigError("PAGE_ID 不能为空")
 
         # 验证 NOTION_VERSION 格式
         version = self._config['NOTION_VERSION']
@@ -75,7 +46,7 @@ class NotionConfig:
         logger.debug(
             f"Notion configuration validated - "
             f"version: {version} - "
-            f"page_id: {self._config['PAGE_ID']} - "
+            f"database_id: {page_id} - "
             f"key_prefix: {notion_key[:7]}..."
         )
 
@@ -91,7 +62,7 @@ class NotionConfig:
 
     @property
     def parent_page_id(self) -> str:
-        """获取父页面 ID"""
+        """获取数据库 ID"""
         return self._config['PAGE_ID']
 
     @property

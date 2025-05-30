@@ -46,6 +46,10 @@ class Message:
         # 如果有外部链接，增加链接计数
         if self.external_url:
             self.link_count += 1
+            
+        # 如果有文件路径或外部URL，设置文件计数为1
+        if self.file_path or self.external_url:
+            self.file_count = 1
 
     def _count_links(self) -> None:
         """计算文本中的链接数量"""
@@ -137,6 +141,8 @@ class Message:
                 f"Processing voice message - message_id: {message.message_id}"
             )
         else:
+            # 确保即使没有文件也计算链接数量
+            msg._count_links()
             return msg
 
         # 下载文件到临时目录
@@ -167,13 +173,13 @@ class Message:
                     os.remove(file_path)
                 raise
 
+        # 确保在返回消息对象前计算链接数量
+        msg._count_links()
         return msg
 
     @property
     def title(self) -> str:
         """获取消息标题"""
-        if self.timestamp:
-            return f"Telegram消息 {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
         return "Telegram消息"
 
     def to_dict(self) -> Dict[str, Any]:

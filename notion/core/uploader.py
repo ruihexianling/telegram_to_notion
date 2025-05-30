@@ -3,6 +3,8 @@ import os
 import asyncio
 from typing import Optional, Dict, Any
 import mimetypes
+import pytz
+from datetime import datetime
 
 import aiohttp
 
@@ -56,17 +58,22 @@ class NotionUploader:
                 f"external_url: {external_url[:10] + '...' if external_url else None}"
             )
             
+            # 获取当前时间
+            beijing_tz = pytz.timezone('Asia/Shanghai')
+            now_beijing = datetime.now(beijing_tz)
+            
             # 创建页面或使用现有页面
             if not append_only:
                 # 构建页面属性
                 properties = {
-                    'source': message.source,
-                    'tags': message.tags,
-                    'is_pinned': message.is_pinned,
-                    'source_url': message.source_url,
-                    'created_time': message.created_time,
-                    'file_count': message.file_count,
-                    'link_count': message.link_count
+                    '来源': message.source,
+                    '标签': message.tags,
+                    '是否置顶': message.is_pinned,
+                    '源链接': message.source_url,
+                    '创建时间': message.created_time,
+                    '更新时间': now_beijing,
+                    '文件数量': message.file_count or 0,
+                    '链接数量': message.link_count or 0
                 }
                 
                 # 验证父页面 ID
@@ -87,6 +94,33 @@ class NotionUploader:
                     logger.error("Missing parent_page_id in append_only mode")
                     raise ValueError("在 append_only 模式下，必须设置 parent_page_id")
                 logger.info(f"Using existing Notion page - page_id: {page_id[:8]}...")
+                
+                # 获取当前页面的属性
+                page = await self.client.get_page(page_id)
+                current_properties = page.get('properties', {})
+                
+                # 更新文件数量和链接数量，确保有默认值
+                current_file_count = current_properties.get('文件数量', {}).get('number', 0) or 0
+                current_link_count = current_properties.get('链接数量', {}).get('number', 0) or 0
+                
+                # 确保 message 的属性也有默认值
+                message_file_count = message.file_count or 0
+                message_link_count = message.link_count or 0
+                
+                # 构建更新的属性
+                properties = {
+                    '文件数量': current_file_count + message_file_count,
+                    '链接数量': current_link_count + message_link_count,
+                    '更新时间': now_beijing
+                }
+                
+                # 更新页面属性
+                await self.client.update_page(page_id, properties)
+                logger.info(
+                    f"Updated page properties - page_id: {page_id[:8]}... - "
+                    f"new_file_count: {properties['文件数量']} - "
+                    f"new_link_count: {properties['链接数量']}"
+                )
 
             # 处理文本内容
             if message.content:
