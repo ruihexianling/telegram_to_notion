@@ -19,6 +19,7 @@ USE_WEBHOOK = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
 PORT = int(os.getenv('PORT', 8443))
 NOTION_TELEGRAM_BOT_WEBHOOK_URL = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_URL')
 NOTION_TELEGRAM_BOT_WEBHOOK_PATH = os.getenv('NOTION_TELEGRAM_BOT_WEBHOOK_PATH')
+RAILWAY_WEBHOOK_PATH = os.getenv('RAILWAY_WEBHOOK_PATH', '/api/railway_webhook')  # Railway webhook 路径
 
 # 授权用户列表
 ADMIN_USERS_STR = os.environ.get("ADMIN_USERS", "")
@@ -32,6 +33,9 @@ DEPLOY_URL = os.getenv('DEPLOY_URL')
 
 # 接口密钥，可设定为任意字符串
 API_SECRET = os.getenv('API_SECRET')
+
+# Railway webhook 密钥
+RAILWAY_WEBHOOK_SECRET = os.getenv('RAILWAY_WEBHOOK_SECRET')
 
 # 环境
 ENV = os.getenv('ENV', 'prod')

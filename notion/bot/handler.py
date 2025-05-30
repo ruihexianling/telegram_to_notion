@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, Application
 from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import JSONResponse
+import json
 
 from ..api.client import NotionClient
 from ..core.buffer import MessageBuffer
@@ -12,6 +13,7 @@ from ..utils.config import NotionConfig
 import config
 from ..routes import get_route
 from .application import get_application
+from .setup import send_message_to_admins
 
 from common_utils import is_auth_user
 
@@ -114,4 +116,47 @@ async def telegram_webhook(request: Request):
         
     except Exception as e:
         logger.exception(f"Error processing Telegram update - error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post(get_route("railway_webhook"))
+async def railway_webhook(request: Request):
+    """处理 Railway webhook 请求"""
+    try:
+        # 获取请求体
+        body = await request.body()
+        body_str = body.decode('utf-8')
+        
+        # 解析请求体
+        data = json.loads(body_str)
+        
+        # 获取应用实例
+        application = get_application()
+        if not application:
+            raise HTTPException(status_code=500, detail="Application not initialized")
+            
+        # 构建通知消息
+        message = (
+            "🚨 Railway 通知\n\n"
+            f"项目: {data.get('project', {}).get('name', 'Unknown')}\n"
+            f"环境: {data.get('environment', {}).get('name', 'Unknown')}\n"
+            f"事件: {data.get('event', 'Unknown')}\n"
+            f"状态: {data.get('status', 'Unknown')}\n"
+            f"时间: {data.get('timestamp', 'Unknown')}\n"
+        )
+        
+        # 如果有错误信息，添加到消息中
+        if data.get('error'):
+            message += f"\n❌ 错误信息:\n{data['error']}"
+            
+        # 发送通知给管理员
+        await send_message_to_admins(application, message)
+        
+        logger.info(f"Processed Railway webhook - event: {data.get('event')}")
+        return JSONResponse({"status": "success"})
+        
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON in Railway webhook request")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.exception(f"Error processing Railway webhook - error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

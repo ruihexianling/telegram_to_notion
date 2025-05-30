@@ -1,7 +1,7 @@
 """Notion API 客户端"""
 import logger
 import aiohttp
-from typing import Dict, Optional, Any, Tuple, Set
+from typing import Dict, Optional, Any, Tuple, Set, List
 from .exceptions import NotionAPIError, NotionFileUploadError, NotionPageError
 from ..utils.config import NotionConfig
 from logger import setup_logger
@@ -27,8 +27,6 @@ class NotionClient:
         'pdf': {'application/pdf'}
     }
     
-    # 完成信号列表
-    COMPLETION_SIGNALS = {'TASK_COMPLETE', 'DONE', 'QUIT', 'Q'}
 
     def __init__(self, config: NotionConfig):
         """初始化 Notion API 客户端
@@ -387,6 +385,10 @@ class NotionClient:
                 
         return payload
 
+    def _split_text_to_paragraphs(self, text: str, max_length: int = 1950) -> List[str]:
+        """将文本按最大长度切分为段落"""
+        return [text[i:i+max_length] for i in range(0, len(text), max_length)]
+
     async def create_page(
         self,
         title: str,
@@ -434,7 +436,7 @@ class NotionClient:
             "properties": self._build_page_properties(title, properties)
         }
         
-        # 如果有内容，添加为子块
+        # 如果有内容，添加为子块（自动分段）
         if content_text:
             payload["children"] = [
                 {
@@ -444,13 +446,12 @@ class NotionClient:
                         "rich_text": [
                             {
                                 "type": "text",
-                                "text": {
-                                    "content": content_text
-                                }
+                                "text": {"content": para}
                             }
                         ]
                     }
                 }
+                for para in self._split_text_to_paragraphs(content_text, 1950)
             ]
         
         try:
@@ -489,6 +490,8 @@ class NotionClient:
             f"content_length: {len(content_text)}"
         )
         
+        # 自动分段
+        paragraphs = self._split_text_to_paragraphs(content_text, 1950)
         url = f"{self.API_BASE_URL}/blocks/{page_id}/children"
         payload = {
             "children": [
@@ -499,13 +502,12 @@ class NotionClient:
                         "rich_text": [
                             {
                                 "type": "text",
-                                "text": {
-                                    "content": content_text
-                                }
+                                "text": {"content": para}
                             }
                         ]
                     }
                 }
+                for para in paragraphs
             ]
         }
         await self._make_request(url, method='PATCH', payload=payload)
