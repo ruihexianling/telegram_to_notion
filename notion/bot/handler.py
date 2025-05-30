@@ -5,6 +5,8 @@ from telegram.ext import ContextTypes, Application
 from fastapi import APIRouter, Request, HTTPException
 from starlette.responses import JSONResponse
 import json
+from datetime import datetime
+import pytz
 
 from ..api.client import NotionClient
 from ..core.buffer import MessageBuffer
@@ -13,7 +15,7 @@ from ..utils.config import NotionConfig
 import config
 from ..routes import get_route
 from .application import get_application
-from .tools import send_message_to_admins
+from .tools import send_message_to_admins, format_datetime
 
 from common_utils import is_auth_user
 
@@ -129,10 +131,25 @@ async def railway_webhook(request: Request):
         # 解析请求体
         data = json.loads(body_str)
         
+        # 打印完整的 data 信息
+        logger.info(f"Received Railway webhook data: {json.dumps(data, indent=2, ensure_ascii=False)}")
+        
         # 获取应用实例
         application = get_application()
         if not application:
             raise HTTPException(status_code=500, detail="Application not initialized")
+            
+        # 转换时间戳为北京时间
+        timestamp = data.get('timestamp')
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                beijing_time = format_datetime(dt)
+            except Exception as e:
+                logger.error(f"Failed to parse timestamp: {e}")
+                beijing_time = timestamp
+        else:
+            beijing_time = 'Unknown'
             
         # 构建通知消息
         message = (
@@ -141,7 +158,7 @@ async def railway_webhook(request: Request):
             f"环境: {data.get('environment', {}).get('name', 'Unknown')}\n"
             f"事件: {data.get('event', 'Unknown')}\n"
             f"状态: {data.get('status', 'Unknown')}\n"
-            f"时间: {data.get('timestamp', 'Unknown')}\n"
+            f"时间: {beijing_time}\n"
         )
         
         # 如果有错误信息，添加到消息中
