@@ -126,12 +126,10 @@ class NotionClient:
                 error_message = error_data.get('message', '未知错误')
                 error_code = error_data.get('code', 'unknown_error')
                 
-                # 格式化错误信息
-                if error_code == 'validation_error':
-                    # 处理验证错误，将多个错误信息分行显示
-                    error_details = error_message.split('. ')
-                    formatted_error = '\n'.join([f"- {detail}" for detail in error_details if detail])
-                    error_message = f"验证错误:\n{formatted_error}"
+                # 格式化所有类型的错误信息
+                error_details = error_message.split('. ')
+                formatted_error = '\n'.join([f"- {detail}" for detail in error_details if detail])
+                error_message = f"错误详情:\n{formatted_error}"
                 
                 logger.error(
                     f"Notion API response error - status_code: {e.status} - "
