@@ -174,7 +174,7 @@ class NotionUploader:
             )
 
             # 特殊处理 Markdown 文件
-            if content_type == 'text/markdown':
+            if file_extension.lower() == 'md' or content_type == 'text/markdown':
                 logger.info(f"Converting Markdown file to text content - file_name: {file_name}")
                 try:
                     with open(message.file_path, 'r', encoding='utf-8') as f:
