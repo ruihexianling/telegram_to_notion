@@ -157,7 +157,6 @@ async def railway_webhook(request: Request):
             f"📦 项目信息:\n"
             f"• 名称: {data.get('project', {}).get('name', 'Unknown')}\n"
             f"• 描述: {data.get('project', {}).get('description', 'Unknown')}\n"
-            f"• 创建时间: {format_datetime(datetime.fromisoformat(data.get('project', {}).get('createdAt', '').replace('Z', '+00:00'))) if data.get('project', {}).get('createdAt') else 'Unknown'}\n\n"
             f"🌍 环境信息:\n"
             f"• 名称: {data.get('environment', {}).get('name', 'Unknown')}\n\n"
             f"📝 事件详情:\n"
