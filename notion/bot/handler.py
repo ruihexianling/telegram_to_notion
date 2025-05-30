@@ -13,7 +13,7 @@ from ..utils.config import NotionConfig
 import config
 from ..routes import get_route
 from .application import get_application
-from .setup import send_message_to_admins
+from .tools import send_message_to_admins
 
 from common_utils import is_auth_user
 
