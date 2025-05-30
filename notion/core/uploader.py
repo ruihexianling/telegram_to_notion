@@ -34,7 +34,7 @@ class NotionUploader:
             'application/vnd.ms-powerpoint',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             # 文本
-            'text/plain', 'text/csv', 'text/markdown', 'text/html'
+            'text/plain', 'text/csv', 'text/html'
         }
 
     async def upload_message(self, message: Message, append_only: bool = False, external_url: Optional[str] = None) -> str:
@@ -62,16 +62,16 @@ class NotionUploader:
                 if not page_id:
                     logger.error("Missing parent_page_id in append_only mode")
                     raise ValueError("在 append_only 模式下，必须设置 parent_page_id")
-                logger.debug(f"Using existing Notion page - page_id: {page_id[:8]}...")
-
-            # 处理文件上传
-            if message.file_path or external_url:
-                await self._handle_file_upload(page_id, message, external_url)
+                logger.info(f"Using existing Notion page - page_id: {page_id[:8]}...")
 
             # 处理文本内容
             if message.content:
                 await self.client.append_text(page_id, message.content)
                 logger.debug(f"Appended text content to Notion page - page_id: {page_id[:8]}...")
+
+            # 处理文件上传
+            if message.file_path or external_url:
+                await self._handle_file_upload(page_id, message, external_url)
 
             return page_id
         except Exception as e:
@@ -115,6 +115,20 @@ class NotionUploader:
                 f"content_type: {content_type} - page_id: {page_id[:8]}..."
             )
 
+            # 特殊处理 Markdown 文件
+            if content_type == 'text/markdown':
+                logger.info(f"Converting Markdown file to text content - file_name: {file_name}")
+                try:
+                    with open(message.file_path, 'r', encoding='utf-8') as f:
+                        markdown_content = f.read()
+                    # 添加 Markdown 内容作为文本
+                    await self.client.append_text(page_id, markdown_content)
+                    logger.info(f"Successfully converted and appended Markdown content - file_name: {file_name}")
+                    return
+                except Exception as e:
+                    logger.error(f"Failed to convert Markdown file - error_type: {type(e).__name__}", exc_info=True)
+                    raise NotionFileUploadError(f"Markdown 文件处理失败: {str(e)}")
+
             # 检查文件类型是否支持
             if content_type not in self.supported_mime_types:
                 logger.warning(
@@ -125,6 +139,10 @@ class NotionUploader:
 
             # 获取文件大小
             file_size = os.path.getsize(message.file_path)
+            if file_size == 0:
+                logger.error(f"Empty file detected - file_name: {file_name}")
+                raise NotionFileUploadError(f"文件为空，无法上传: {file_name}")
+
             logger.info(
                 f"File size information - file_size_bytes: {file_size} - "
                 f"file_size_mb: {round(file_size / (1024 * 1024), 2)} - "
