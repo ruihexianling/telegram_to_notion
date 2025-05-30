@@ -104,8 +104,8 @@ async def api_upload(
         )
          
         if not page_id:
-            # 如果没有提供 page_id，使用默认的接口专用page
-            page_id = API_PAGE_ID
+            # 如果没有提供 page_id，使用默认主页面PAGE_ID
+            page_id = PAGE_ID
             
         # 创建 Notion 客户端
         config = NotionConfig({
@@ -119,10 +119,10 @@ async def api_upload(
             uploader = NotionUploader(client)
             
             if append_only:
-                # 追加模式：使用现有页面
-                client.parent_page_id = page_id
+                # 追加模式：使用默认接口通用页面 append_only = true
+                client.parent_page_id = API_PAGE_ID
             else:
-                # 非追加模式：创建新页面
+                # 非追加模式：创建新页面 append_only = false
                 title = content[:15] if content else "from_api_" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
                 
                 # 构建页面属性
