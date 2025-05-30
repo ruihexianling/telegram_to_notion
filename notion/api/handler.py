@@ -123,7 +123,7 @@ async def api_upload(
                 client.parent_page_id = API_PAGE_ID
             else:
                 # 非追加模式：创建新页面 append_only = false
-                title = content[:15] if content else "from_api_" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
+                title = content[:15] if content else "from_api"
                 
                 # 构建页面属性
                 properties = {
@@ -142,14 +142,33 @@ async def api_upload(
                     f"Created new Notion page - parent_page_id: {page_id} - "
                     f"new_page_id: {new_page_id} - title: {title}"
                 )
+
+            # 先处理文本内容
+            # 每个消息前添加时间戳
+            beijing_time = now_beijing.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # 保留到毫秒
+            content = f"[{beijing_time}]\n{content}" if content else f"[{beijing_time}]"
+            message = Message(
+                content=content,
+                file_path=None,
+                file_name=None,
+                content_type=None,
+                source=source or 'API',
+                tags=tags.split(',') if tags else [],
+                is_pinned=is_pinned,
+                source_url=source_url,
+                created_time=now_beijing
+            )
+            # 上传文本消息
+            await uploader.upload_message(message, append_only=True)
             
             # 处理文件上传
             if urls:
                 # 处理URL列表（逗号分隔）
                 url_list = [url.strip() for url in urls.split(',') if url.strip()]
                 for url in url_list:
+                    # 创建消息对象
                     message = Message(
-                        content=content,
+                        content=None,
                         file_path=None,
                         file_name=None,
                         content_type=None,
@@ -169,7 +188,7 @@ async def api_upload(
                     try:
                         # 创建消息对象
                         message = Message(
-                            content=content,
+                            content=None,
                             file_path=file_path,
                             file_name=file_name,
                             content_type=content_type,
@@ -186,22 +205,6 @@ async def api_upload(
                         # 清理临时文件
                         if file_path:
                             cleanup_temp_file(file_path)
-            else:
-                # 没有文件，只处理文本内容
-                message = Message(
-                    content=content,
-                    file_path=None,
-                    file_name=None,
-                    content_type=None,
-                    source=source or 'API',
-                    tags=tags.split(',') if tags else [],
-                    is_pinned=is_pinned,
-                    source_url=source_url,
-                    created_time=now_beijing
-                )
-                
-                # 上传消息
-                await uploader.upload_message(message, append_only=True)
             
             # 返回新页面ID
             data = {
