@@ -36,6 +36,10 @@ class NotionUploader:
             # 文本
             'text/plain', 'text/csv', 'text/html'
         }
+        logger.debug(
+            f"NotionUploader initialized - parent_page_id: {client.parent_page_id} - "
+            f"supported_mime_types: {len(self.supported_mime_types)}"
+        )
 
     async def upload_message(self, message: Message, append_only: bool = False, external_url: Optional[str] = None) -> str:
         """上传消息到 Notion
@@ -54,7 +58,27 @@ class NotionUploader:
             
             # 创建页面或使用现有页面
             if not append_only:
-                page_id = await self.client.create_page(message.title)
+                # 构建页面属性
+                properties = {
+                    'source': message.source,
+                    'tags': message.tags,
+                    'is_pinned': message.is_pinned,
+                    'source_url': message.source_url,
+                    'created_time': message.created_time,
+                    'file_count': message.file_count,
+                    'link_count': message.link_count
+                }
+                
+                # 验证父页面 ID
+                parent_page_id = self.client.parent_page_id
+                logger.debug(f"Using parent page ID: {parent_page_id}")
+                
+                # 创建新页面
+                page_id = await self.client.create_page(
+                    message.title,
+                    properties=properties,
+                    parent_page_id=parent_page_id
+                )
                 logger.info(f"Created new Notion page - page_id: {page_id[:8]}...")
             else:
                 # 在 append_only 模式下，使用 client 的 parent_page_id

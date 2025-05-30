@@ -187,11 +187,12 @@ async def shutdown_event():
             # 确保 application 实例在停止前是运行状态
             if application.running:
                 await application.stop()
-                # try:
-                #     # 移除 webhook
-                #     await remove_webhook(application)
-                # except Exception as e:
-                #     logger.error(f"Failed to remove webhook: {e}")
+                try:
+                    if ENV == 'dev':
+                        # 移除 webhook
+                        await remove_webhook(application)
+                except Exception as e:
+                    logger.error(f"Failed to remove webhook: {e}")
                 logger.debug("Shutting down bot application")
                 await application.shutdown()
         except Exception as e:

@@ -16,15 +16,26 @@ class NotionClient:
         self.config = config
         self._session: Optional[aiohttp.ClientSession] = None
         self._parent_page_id: Optional[str] = None
+        logger.debug(
+            f"NotionClient initialized - config_page_id: {config.parent_page_id} - "
+            f"version: {config.notion_version}"
+        )
 
     @property
     def parent_page_id(self) -> str:
         """获取父页面 ID"""
-        return self._parent_page_id or self.config.parent_page_id
+        page_id = self._parent_page_id or self.config.parent_page_id
+        if not page_id:
+            raise NotionPageError("未设置父页面 ID")
+        logger.debug(f"Getting parent page ID: {page_id}")
+        return page_id
 
     @parent_page_id.setter
     def parent_page_id(self, value: str):
         """设置父页面 ID"""
+        if not value:
+            raise NotionPageError("父页面 ID 不能为空")
+        logger.debug(f"Setting parent page ID: {value}")
         self._parent_page_id = value
 
     async def __aenter__(self):
@@ -58,10 +69,13 @@ class NotionClient:
             if content_type:
                 headers["Content-Type"] = content_type
 
+        # 记录详细的请求信息
         logger.debug(
             f"Making Notion API request - method: {method} - "
             f"endpoint: {url.split('/')[-1]} - "
-            f"has_payload: {bool(payload)} - has_data: {bool(data)}"
+            f"has_payload: {bool(payload)} - has_data: {bool(data)} - "
+            f"headers: {json.dumps(headers, ensure_ascii=False)} - "
+            f"payload: {json.dumps(payload, ensure_ascii=False) if payload else None}"
         )
 
         try:
@@ -79,14 +93,16 @@ class NotionClient:
         except aiohttp.ClientError as e:
             logger.error(
                 f"Notion API request failed - method: {method} - "
-                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__}",
+                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__} - "
+                f"error: {str(e)}",
                 exc_info=True
             )
             raise NotionAPIError(f"Notion API 请求失败: {str(e)}")
         except Exception as e:
             logger.error(
                 f"Unexpected error in Notion API request - method: {method} - "
-                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__}",
+                f"endpoint: {url.split('/')[-1]} - error_type: {type(e).__name__} - "
+                f"error: {str(e)}",
                 exc_info=True
             )
             raise NotionAPIError(f"Notion API 请求发生意外错误: {str(e)}")
@@ -95,13 +111,23 @@ class NotionClient:
         """处理 API 响应"""
         try:
             response.raise_for_status()
-            return await response.json()
+            response_data = await response.json()
+            logger.debug(
+                f"Notion API response success - status_code: {response.status} - "
+                f"endpoint: {url.split('/')[-1]} - "
+                f"response: {json.dumps(response_data, ensure_ascii=False)}"
+            )
+            return response_data
         except aiohttp.ClientResponseError as e:
             response_body = await response.text()
             logger.error(
                 f"Notion API response error - status_code: {e.status} - "
                 f"endpoint: {url.split('/')[-1]} - "
-                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'}"
+                f"error_type: {'file_upload' if 'file_uploads' in url else 'page_operation'} - "
+                f"response_body: {response_body} - "
+                f"request_url: {url} - "
+                f"request_method: {e.request_info.method} - "
+                f"request_headers: {json.dumps(dict(e.request_info.headers), ensure_ascii=False)}"
             )
             if 'file_uploads' in url:
                 raise NotionFileUploadError(
@@ -116,52 +142,155 @@ class NotionClient:
                     response_body=response_body
                 )
 
-    async def create_page(self, title: str, content_text: Optional[str] = None) -> str:
-        """创建 Notion 页面"""
+    async def create_page(
+        self,
+        title: str,
+        content_text: Optional[str] = None,
+        properties: Optional[Dict[str, Any]] = None,
+        parent_page_id: Optional[str] = None
+    ) -> str:
+        """创建 Notion 页面
+        
+        Args:
+            title: 页面标题
+            content_text: 页面内容文本
+            properties: 页面属性，包括：
+                - source: 来源
+                - tags: 标签列表
+                - is_pinned: 是否置顶
+                - source_url: 源链接
+                - created_time: 创建时间
+                - file_count: 文件数量
+                - link_count: 链接数量
+            parent_page_id: 父页面 ID，如果提供则使用此 ID，否则使用默认的 parent_page_id
+        """
         logger.debug(
             f"Creating Notion page - has_content: {bool(content_text)} - "
-            f"title_length: {len(title)}"
+            f"title_length: {len(title)} - has_properties: {bool(properties)} - "
+            f"parent_page_id: {parent_page_id or self.parent_page_id}"
         )
         
         url = "https://api.notion.com/v1/pages"
+        
+        # 构建基础属性
+        page_properties = {
+            "title": {
+                "title": [
+                    {
+                        "text": {
+                            "content": title
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # 添加自定义属性
+        if properties:
+            if properties.get('source'):
+                page_properties['source'] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": properties['source']
+                            }
+                        }
+                    ]
+                }
+            
+            if properties.get('tags'):
+                page_properties['tags'] = {
+                    "multi_select": [
+                        {"name": tag} for tag in properties['tags']
+                    ]
+                }
+            
+            if 'is_pinned' in properties:
+                page_properties['is_pinned'] = {
+                    "checkbox": properties['is_pinned']
+                }
+            
+            if properties.get('source_url'):
+                page_properties['source_url'] = {
+                    "url": properties['source_url']
+                }
+            
+            if properties.get('created_time'):
+                page_properties['created_time'] = {
+                    "date": {
+                        "start": properties['created_time'].isoformat()
+                    }
+                }
+            
+            if 'file_count' in properties:
+                page_properties['file_count'] = {
+                    "number": properties['file_count']
+                }
+            
+            if 'link_count' in properties:
+                page_properties['link_count'] = {
+                    "number": properties['link_count']
+                }
+        
+        # 构建请求体
         payload = {
             "parent": {
                 "type": "page_id",
-                "page_id": self.parent_page_id
+                "page_id": parent_page_id or self.parent_page_id
             },
-            "properties": {
-                "title": {
-                    "title": [
-                        {
-                            "text": {
-                                "content": title
-                            }
-                        }
-                    ]
-                }
-            },
-            "children": []
+            "properties": page_properties
         }
-
+        
+        # 如果有内容，添加为子块
         if content_text:
-            payload["children"].append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [
-                        {
-                            "type": "text",
-                            "text": {
-                                "content": content_text
+            payload["children"] = [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": content_text
+                                }
                             }
-                        }
-                    ]
+                        ]
+                    }
                 }
-            })
-
-        response = await self._make_request(url, method='POST', payload=payload)
-        logger.info(f"Notion page created successfully - page_id: {response['id'][:8]}...")
-        return response['id']
+            ]
+        
+        # 记录完整的请求信息
+        logger.debug(
+            f"Preparing to create Notion page - "
+            f"url: {url} - "
+            f"parent_page_id: {parent_page_id or self.parent_page_id} - "
+            f"payload: {json.dumps(payload, ensure_ascii=False)}"
+        )
+        
+        try:
+            # 发送请求
+            response = await self._make_request(url, payload=payload)
+            
+            # 获取新页面ID
+            new_page_id = response.get("id")
+            if not new_page_id:
+                raise NotionPageError("创建页面失败：未返回页面ID")
+                
+            logger.info(
+                f"Created new Notion page - page_id: {new_page_id} - "
+                f"title: {title} - parent_page_id: {parent_page_id or self.parent_page_id}"
+            )
+            
+            return new_page_id
+            
+        except NotionPageError as e:
+            logger.error(
+                f"Failed to create Notion page - error: {str(e)} - "
+                f"parent_page_id: {parent_page_id or self.parent_page_id} - "
+                f"title: {title}"
+            )
+            raise
 
     async def append_text(self, page_id: str, content_text: str) -> None:
         """添加文本块到页面"""

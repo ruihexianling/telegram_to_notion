@@ -63,7 +63,11 @@ async def api_upload(
     files: Optional[List[UploadFile]] = None,
     urls: Optional[str] = None,
     x_signature: Optional[str] = None,
-    append_only: bool = False
+    append_only: bool = False,
+    source: Optional[str] = None,
+    tags: Optional[str] = None,
+    is_pinned: bool = False,
+    source_url: Optional[str] = None
 ) -> dict:
     """统一的 API 上传方法
     
@@ -75,9 +79,10 @@ async def api_upload(
         urls: URL列表字符串（逗号分隔）
         x_signature: API 签名
         append_only: 是否为追加模式
-        
-    Returns:
-        dict: 包含上传结果的字典
+        source: 来源
+        tags: 标签列表（逗号分隔）
+        is_pinned: 是否置顶
+        source_url: 源链接
     """
     try:
         # 安全地获取内容预览
@@ -90,7 +95,8 @@ async def api_upload(
         logger.info(
             f"Received upload request - page_id: {page_id} - "
             f"content: {content_preview} - files: {files_count} - "
-            f"urls: {urls_count} - append_only: {append_only}"
+            f"urls: {urls_count} - append_only: {append_only} - "
+            f"source: {source} - tags: {tags} - is_pinned: {is_pinned}"
         )
          
         if not page_id:
@@ -116,7 +122,19 @@ async def api_upload(
                 beijing_tz = pytz.timezone('Asia/Shanghai')
                 now_beijing = datetime.datetime.now(beijing_tz)
                 title = content[:15] if content else "from_api_" + now_beijing.strftime("%Y-%m-%d %H:%M:%S")
-                new_page_id = await client.create_page(title)
+                
+                # 构建页面属性
+                properties = {
+                    'source': source or 'API',
+                    'tags': tags.split(',') if tags else [],
+                    'is_pinned': is_pinned,
+                    'source_url': source_url,
+                    'created_time': now_beijing,
+                    'file_count': files_count,
+                    'link_count': urls_count
+                }
+                
+                new_page_id = await client.create_page(title, properties=properties)
                 client.parent_page_id = new_page_id
                 logger.info(
                     f"Created new Notion page - parent_page_id: {page_id} - "
@@ -133,7 +151,12 @@ async def api_upload(
                         file_path=None,
                         file_name=None,
                         content_type=None,
-                        external_url=url
+                        external_url=url,
+                        source=source or 'API',
+                        tags=tags.split(',') if tags else [],
+                        is_pinned=is_pinned,
+                        source_url=source_url,
+                        created_time=now_beijing
                     )
                     await uploader.upload_message(message, append_only=True, external_url=url)
             elif files:
@@ -147,7 +170,12 @@ async def api_upload(
                             content=content,
                             file_path=file_path,
                             file_name=file_name,
-                            content_type=content_type
+                            content_type=content_type,
+                            source=source or 'API',
+                            tags=tags.split(',') if tags else [],
+                            is_pinned=is_pinned,
+                            source_url=source_url,
+                            created_time=now_beijing
                         )
                         
                         # 上传消息
@@ -162,7 +190,12 @@ async def api_upload(
                     content=content,
                     file_path=None,
                     file_name=None,
-                    content_type=None
+                    content_type=None,
+                    source=source or 'API',
+                    tags=tags.split(',') if tags else [],
+                    is_pinned=is_pinned,
+                    source_url=source_url,
+                    created_time=now_beijing
                 )
                 
                 # 上传消息
@@ -189,6 +222,10 @@ async def upload_via_api(
     files: Optional[List[UploadFile]] = File(None),
     urls: Optional[str] = Form(None),
     append_only: bool = Form(True),
+    source: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    is_pinned: bool = Form(False),
+    source_url: Optional[str] = Form(None),
     x_signature: str = Header(None, alias="X-Signature")
 ):
     """上传内容为页面
@@ -198,6 +235,11 @@ async def upload_via_api(
         content: 页面内容
         files: 上传的文件列表
         urls: URL列表字符串（逗号分隔）
+        append_only: 是否为追加模式
+        source: 来源
+        tags: 标签列表（逗号分隔）
+        is_pinned: 是否置顶
+        source_url: 源链接
         x_signature: API 签名，在请求头中通过 X-Signature 传递
     """
     return await api_upload(
@@ -207,5 +249,9 @@ async def upload_via_api(
         files=files,
         urls=urls,
         x_signature=x_signature,
-        append_only=append_only
+        append_only=append_only,
+        source=source,
+        tags=tags,
+        is_pinned=is_pinned,
+        source_url=source_url
     )
