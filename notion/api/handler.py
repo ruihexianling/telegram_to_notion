@@ -1,7 +1,7 @@
 """Notion API 处理器"""
 import datetime
 import pytz
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any, Tuple
 from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form, Header, status
 import re
 
@@ -17,21 +17,56 @@ from ..api.exceptions import NotionFileUploadError
 
 from logger import setup_logger
 from config import *
+
 # 配置日志
 logger = setup_logger(__name__)
 
 # 创建路由
 router = APIRouter()
 
+# 常量定义
+BEIJING_TIMEZONE = 'Asia/Shanghai'
+URL_PATTERN = re.compile(r'^https?://\S+$')
+CONTENT_PREVIEW_LENGTH = 10
+TITLE_LENGTH = 15
+TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
+TIMESTAMP_MILLISECONDS = 3
+
+# 错误类别映射
+ERROR_CATEGORIES = {
+    HTTPException: "请求错误",
+    NotionFileUploadError: "文件上传错误",
+    "ClientResponseError": "Notion API 错误",
+    "ConnectionError": "网络连接错误",
+    "TimeoutError": "请求超时",
+    "FileNotFoundError": "文件不存在",
+    "PermissionError": "权限错误"
+}
+
+# HTTP 状态码映射
+HTTP_STATUS_CODES = {
+    HTTPException: lambda e: e.status_code,
+    NotionFileUploadError: lambda _: status.HTTP_400_BAD_REQUEST,
+    "ClientResponseError": lambda _: status.HTTP_502_BAD_GATEWAY,
+    "ConnectionError": lambda _: status.HTTP_503_SERVICE_UNAVAILABLE,
+    "TimeoutError": lambda _: status.HTTP_504_GATEWAY_TIMEOUT,
+    "FileNotFoundError": lambda _: status.HTTP_404_NOT_FOUND,
+    "PermissionError": lambda _: status.HTTP_403_FORBIDDEN
+}
+
 def is_url_list(content: str) -> bool:
-    """检查内容是否为URL列表"""
+    """检查内容是否为URL列表
+    
+    Args:
+        content: 要检查的内容
+        
+    Returns:
+        bool: 是否为URL列表
+    """
     if not content:
         return False
-    # 分割内容为逗号
     urls = content.strip().split(',')
-    # 检查每个URL是否为有效的URL
-    url_pattern = re.compile(r'^https?://\S+$')
-    return all(url_pattern.match(url.strip()) for url in urls)
+    return all(URL_PATTERN.match(url.strip()) for url in urls)
 
 def get_error_category(error: Exception) -> str:
     """获取错误类别
@@ -42,22 +77,11 @@ def get_error_category(error: Exception) -> str:
     Returns:
         str: 错误类别描述
     """
-    if isinstance(error, HTTPException):
-        return "请求错误"
-    elif isinstance(error, NotionFileUploadError):
-        return "文件上传错误"
-    elif "ClientResponseError" in str(type(error)):
-        return "Notion API 错误"
-    elif "ConnectionError" in str(type(error)):
-        return "网络连接错误"
-    elif "TimeoutError" in str(type(error)):
-        return "请求超时"
-    elif "FileNotFoundError" in str(type(error)):
-        return "文件不存在"
-    elif "PermissionError" in str(type(error)):
-        return "权限错误"
-    else:
-        return "服务器内部错误"
+    error_type = type(error).__name__
+    for error_class, category in ERROR_CATEGORIES.items():
+        if isinstance(error, error_class) or error_class in error_type:
+            return category
+    return "服务器内部错误"
 
 def get_http_status_code(error: Exception) -> int:
     """获取HTTP状态码
@@ -68,22 +92,189 @@ def get_http_status_code(error: Exception) -> int:
     Returns:
         int: HTTP状态码
     """
-    if isinstance(error, HTTPException):
-        return error.status_code
-    elif isinstance(error, NotionFileUploadError):
-        return status.HTTP_400_BAD_REQUEST
-    elif "ClientResponseError" in str(type(error)):
-        return status.HTTP_502_BAD_GATEWAY
-    elif "ConnectionError" in str(type(error)):
-        return status.HTTP_503_SERVICE_UNAVAILABLE
-    elif "TimeoutError" in str(type(error)):
-        return status.HTTP_504_GATEWAY_TIMEOUT
-    elif "FileNotFoundError" in str(type(error)):
-        return status.HTTP_404_NOT_FOUND
-    elif "PermissionError" in str(type(error)):
-        return status.HTTP_403_FORBIDDEN
-    else:
-        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    error_type = type(error).__name__
+    for error_class, status_code_func in HTTP_STATUS_CODES.items():
+        if isinstance(error, error_class) or error_class in error_type:
+            return status_code_func(error)
+    return status.HTTP_500_INTERNAL_SERVER_ERROR
+
+def get_beijing_time() -> datetime.datetime:
+    """获取北京时区的当前时间
+    
+    Returns:
+        datetime.datetime: 北京时区的当前时间
+    """
+    beijing_tz = pytz.timezone(BEIJING_TIMEZONE)
+    return datetime.datetime.now(beijing_tz)
+
+def format_timestamp(dt: datetime.datetime) -> str:
+    """格式化时间戳
+    
+    Args:
+        dt: 日期时间对象
+        
+    Returns:
+        str: 格式化后的时间戳
+    """
+    return dt.strftime(TIMESTAMP_FORMAT)[:-TIMESTAMP_MILLISECONDS]
+
+def create_message(
+    content: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_name: Optional[str] = None,
+    content_type: Optional[str] = None,
+    external_url: Optional[str] = None,
+    source: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    is_pinned: bool = False,
+    source_url: Optional[str] = None,
+    created_time: Optional[datetime.datetime] = None
+) -> Message:
+    """创建消息对象
+    
+    Args:
+        content: 消息内容
+        file_path: 文件路径
+        file_name: 文件名
+        content_type: 文件类型
+        external_url: 外部URL
+        source: 来源
+        tags: 标签列表
+        is_pinned: 是否置顶
+        source_url: 源链接
+        created_time: 创建时间
+        
+    Returns:
+        Message: 消息对象
+    """
+    return Message(
+        content=content,
+        file_path=file_path,
+        file_name=file_name,
+        content_type=content_type,
+        external_url=external_url,
+        source=source or 'API',
+        tags=tags or [],
+        is_pinned=is_pinned,
+        source_url=source_url,
+        created_time=created_time
+    )
+
+def create_page_properties(
+    source: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    is_pinned: bool = False,
+    source_url: Optional[str] = None,
+    created_time: Optional[datetime.datetime] = None
+) -> Dict[str, Any]:
+    """创建页面属性
+    
+    Args:
+        source: 来源
+        tags: 标签列表
+        is_pinned: 是否置顶
+        source_url: 源链接
+        created_time: 创建时间
+        
+    Returns:
+        Dict[str, Any]: 页面属性字典
+    """
+    return {
+        '来源': source if source is not None else 'API',
+        '标签': tags or [],
+        '是否置顶': is_pinned,
+        '源链接': source_url,
+        '创建时间': created_time,
+        '文件数量': 0,  # 初始化为0，让 Message 对象来计算实际数量
+        '链接数量': 0   # 初始化为0，让 Message 对象来计算实际数量
+    }
+
+async def handle_url_upload(
+    uploader: NotionUploader,
+    url: str,
+    source: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    is_pinned: bool = False,
+    source_url: Optional[str] = None,
+    created_time: Optional[datetime.datetime] = None
+) -> None:
+    """处理URL上传
+    
+    Args:
+        uploader: Notion上传器
+        url: 要上传的URL
+        source: 来源
+        tags: 标签列表
+        is_pinned: 是否置顶
+        source_url: 源链接
+        created_time: 创建时间
+        
+    Raises:
+        HTTPException: URL上传失败
+    """
+    try:
+        message = create_message(
+            external_url=url,
+            source=source,
+            tags=tags,
+            is_pinned=is_pinned,
+            source_url=source_url,
+            created_time=created_time
+        )
+        await uploader.upload_message(message, append_only=True, external_url=url)
+    except Exception as e:
+        logger.error(f"URL上传失败: {url}, 错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"URL上传失败: {url}, 错误: {str(e)}"
+        )
+
+async def handle_file_upload(
+    uploader: NotionUploader,
+    file: UploadFile,
+    source: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    is_pinned: bool = False,
+    source_url: Optional[str] = None,
+    created_time: Optional[datetime.datetime] = None
+) -> None:
+    """处理文件上传
+    
+    Args:
+        uploader: Notion上传器
+        file: 要上传的文件
+        source: 来源
+        tags: 标签列表
+        is_pinned: 是否置顶
+        source_url: 源链接
+        created_time: 创建时间
+        
+    Raises:
+        HTTPException: 文件上传失败
+    """
+    file_path = None
+    try:
+        file_path, file_name, content_type = await save_upload_file_temporarily(file)
+        message = create_message(
+            file_path=file_path,
+            file_name=file_name,
+            content_type=content_type,
+            source=source,
+            tags=tags,
+            is_pinned=is_pinned,
+            source_url=source_url,
+            created_time=created_time
+        )
+        await uploader.upload_message(message, append_only=True)
+    except Exception as e:
+        logger.error(f"文件上传失败: {file.filename}, 错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"文件上传失败: {file.filename}, 错误: {str(e)}"
+        )
+    finally:
+        if file_path:
+            cleanup_temp_file(file_path)
 
 async def api_upload(
     request: Request,
@@ -112,14 +303,19 @@ async def api_upload(
         tags: 标签列表（逗号分隔）
         is_pinned: 是否置顶
         source_url: 源链接
+        
+    Returns:
+        dict: API响应
+        
+    Raises:
+        HTTPException: 上传失败
     """
     try:
         # 获取北京时区的当前时间
-        beijing_tz = pytz.timezone('Asia/Shanghai')
-        now_beijing = datetime.datetime.now(beijing_tz)
+        now_beijing = get_beijing_time()
         
         # 安全地获取内容预览
-        content_preview = content[:10] if content else "None"
+        content_preview = content[:CONTENT_PREVIEW_LENGTH] if content else "None"
         # 安全地获取文件数量
         files_count = len(files) if files else 0
         # 安全地获取URL数量
@@ -152,18 +348,16 @@ async def api_upload(
                 client.parent_page_id = API_PAGE_ID
             else:
                 # 非追加模式：创建新页面 append_only = false
-                title = content[:15] if content else "from_api"
+                title = content[:TITLE_LENGTH] if content else "from_api"
                 
                 # 构建页面属性
-                properties = {
-                    '来源': source if source is not None else 'API',
-                    '标签': tags.split(',') if tags else [],
-                    '是否置顶': is_pinned,
-                    '源链接': source_url,
-                    '创建时间': now_beijing,
-                    '文件数量': 0,  # 初始化为0，让 Message 对象来计算实际数量
-                    '链接数量': 0   # 初始化为0，让 Message 对象来计算实际数量
-                }
+                properties = create_page_properties(
+                    source=source,
+                    tags=tags.split(',') if tags else None,
+                    is_pinned=is_pinned,
+                    source_url=source_url,
+                    created_time=now_beijing
+                )
                 
                 new_page_id = await client.create_page(title, properties=properties)
                 client.parent_page_id = new_page_id
@@ -174,15 +368,12 @@ async def api_upload(
 
             # 先处理文本内容
             # 每个消息前添加时间戳
-            beijing_time = now_beijing.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]  # 保留到毫秒
+            beijing_time = format_timestamp(now_beijing)
             content = f"[{beijing_time}]\n{content}" if content else f"[{beijing_time}]"
-            message = Message(
+            message = create_message(
                 content=content,
-                file_path=None,
-                file_name=None,
-                content_type=None,
-                source=source or 'API',
-                tags=tags.split(',') if tags else [],
+                source=source,
+                tags=tags.split(',') if tags else None,
                 is_pinned=is_pinned,
                 source_url=source_url,
                 created_time=now_beijing
@@ -195,58 +386,27 @@ async def api_upload(
                 # 处理URL列表（逗号分隔）
                 url_list = [url.strip() for url in urls.split(',') if url.strip()]
                 for url in url_list:
-                    try:
-                        # 创建消息对象
-                        message = Message(
-                            content=None,
-                            file_path=None,
-                            file_name=None,
-                            content_type=None,
-                            external_url=url,
-                            source=source or 'API',
-                            tags=tags.split(',') if tags else [],
-                            is_pinned=is_pinned,
-                            source_url=source_url,
-                            created_time=now_beijing
-                        )
-                        await uploader.upload_message(message, append_only=True, external_url=url)
-                    except Exception as e:
-                        logger.error(f"URL上传失败: {url}, 错误: {str(e)}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"URL上传失败: {url}, 错误: {str(e)}"
-                        )
+                    await handle_url_upload(
+                        uploader=uploader,
+                        url=url,
+                        source=source,
+                        tags=tags.split(',') if tags else None,
+                        is_pinned=is_pinned,
+                        source_url=source_url,
+                        created_time=now_beijing
+                    )
             elif files:
                 # 处理文件列表
                 for file in files:
-                    # 保存文件到临时目录
-                    file_path, file_name, content_type = await save_upload_file_temporarily(file)
-                    try:
-                        # 创建消息对象
-                        message = Message(
-                            content=None,
-                            file_path=file_path,
-                            file_name=file_name,
-                            content_type=content_type,
-                            source=source or 'API',
-                            tags=tags.split(',') if tags else [],
-                            is_pinned=is_pinned,
-                            source_url=source_url,
-                            created_time=now_beijing
-                        )
-                        
-                        # 上传消息
-                        await uploader.upload_message(message, append_only=True)
-                    except Exception as e:
-                        logger.error(f"文件上传失败: {file_name}, 错误: {str(e)}")
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"文件上传失败: {file_name}, 错误: {str(e)}"
-                        )
-                    finally:
-                        # 清理临时文件
-                        if file_path:
-                            cleanup_temp_file(file_path)
+                    await handle_file_upload(
+                        uploader=uploader,
+                        file=file,
+                        source=source,
+                        tags=tags.split(',') if tags else None,
+                        is_pinned=is_pinned,
+                        source_url=source_url,
+                        created_time=now_beijing
+                    )
             
             # 返回新页面ID
             data = {
@@ -283,10 +443,11 @@ async def upload_via_api(
     is_pinned: bool = Form(False),
     source_url: Optional[str] = Form(None),
     x_signature: str = Header(None, alias="X-Signature")
-):
+) -> dict:
     """上传内容为页面
     
     Args:
+        request: FastAPI 请求对象
         page_id: 父页面ID
         content: 页面内容
         files: 上传的文件列表
@@ -297,6 +458,12 @@ async def upload_via_api(
         is_pinned: 是否置顶
         source_url: 源链接
         x_signature: API 签名，在请求头中通过 X-Signature 传递
+        
+    Returns:
+        dict: API响应
+        
+    Raises:
+        HTTPException: 上传失败
     """
     return await api_upload(
         request=request,
