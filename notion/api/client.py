@@ -324,6 +324,72 @@ class NotionClient:
                     ]
                 }
             }
+            
+            # 添加自定义属性
+            if properties:
+                # 来源
+                if properties.get('来源'):
+                    page_properties['来源'] = {
+                        "select": {
+                            "name": properties['来源']
+                        }
+                    }
+                
+                # 标签
+                if properties.get('标签'):
+                    page_properties['标签'] = {
+                        "multi_select": [
+                            {"name": tag} for tag in properties['标签']
+                        ]
+                    }
+                
+                # 置顶状态
+                if '是否置顶' in properties:
+                    page_properties['是否置顶'] = {
+                        "checkbox": properties['是否置顶']
+                    }
+                
+                # 源链接
+                if properties.get('源链接'):
+                    page_properties['源链接'] = {
+                        "url": properties['源链接']
+                    }
+                
+                # 创建时间
+                if properties.get('创建时间'):
+                    page_properties['创建时间'] = {
+                        "date": {
+                            "start": properties['创建时间'].isoformat()
+                        }
+                    }
+                
+                # 更新时间
+                if properties.get('更新时间'):
+                    page_properties['更新时间'] = {
+                        "date": {
+                            "start": properties['更新时间'].isoformat()
+                        }
+                    }
+                
+                # 文件数量
+                if '文件数量' in properties:
+                    page_properties['文件数量'] = {
+                        "number": properties['文件数量']
+                    }
+                
+                # 链接数量
+                if '链接数量' in properties:
+                    page_properties['链接数量'] = {
+                        "number": properties['链接数量']
+                    }
+                
+                # 状态
+                if properties.get('状态'):
+                    page_properties['状态'] = {
+                        "select": {
+                            "name": properties['状态']
+                        }
+                    }
         
         # 构建请求体
         payload = {

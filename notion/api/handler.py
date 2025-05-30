@@ -127,7 +127,7 @@ async def api_upload(
                 
                 # 构建页面属性
                 properties = {
-                    '来源': source or 'API',
+                    '来源': source if source is not None else 'API',
                     '标签': tags.split(',') if tags else [],
                     '是否置顶': is_pinned,
                     '源链接': source_url,
