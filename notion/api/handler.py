@@ -105,7 +105,7 @@ async def api_upload(
          
         if not page_id:
             # 如果没有提供 page_id，使用默认主页面PAGE_ID
-            page_id = PAGE_ID
+            page_id = DATABASE_ID
             
         # 创建 Notion 客户端
         config = NotionConfig({

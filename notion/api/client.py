@@ -197,199 +197,91 @@ class NotionClient:
         
         url = "https://api.notion.com/v1/pages"
         
-        # 获取父页面信息
-        parent_id = parent_page_id or self.parent_page_id
-        try:
-            parent_info = await self.get_page(parent_id)
-            parent_type = parent_info.get("object")
-            
-            # 根据父页面类型构建不同的 parent 结构
-            if parent_type == "database":
-                parent = {
-                    "type": "database_id",
-                    "database_id": parent_id
-                }
-                # 数据库类型需要设置属性
-                page_properties = {
-                    "标题": {
-                        "title": [
-                            {
-                                "type": "text",
-                                "text": {
-                                    "content": title
-                                }
-                            }
-                        ]
+        # 直接使用数据库 ID
+        parent = {
+            "type": "database_id",
+            "database_id": parent_page_id or self.parent_page_id
+        }
+        
+        # 设置页面属性
+        page_properties = {
+            "标题": {
+                "title": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": title
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # 添加自定义属性
+        if properties:
+            # 来源
+            if properties.get('来源'):
+                page_properties['来源'] = {
+                    "select": {
+                        "name": properties['来源']
                     }
                 }
-                
-                # 添加自定义属性
-                if properties:
-                    # 来源
-                    if properties.get('来源'):
-                        page_properties['来源'] = {
-                            "select": {
-                                "name": properties['来源']
-                            }
-                        }
-                    
-                    # 标签
-                    if properties.get('标签'):
-                        page_properties['标签'] = {
-                            "multi_select": [
-                                {"name": tag} for tag in properties['标签']
-                            ]
-                        }
-                    
-                    # 置顶状态
-                    if '是否置顶' in properties:
-                        page_properties['是否置顶'] = {
-                            "checkbox": properties['是否置顶']
-                        }
-                    
-                    # 源链接
-                    if properties.get('源链接'):
-                        page_properties['源链接'] = {
-                            "url": properties['源链接']
-                        }
-                    
-                    # 创建时间
-                    if properties.get('创建时间'):
-                        page_properties['创建时间'] = {
-                            "date": {
-                                "start": properties['创建时间'].isoformat()
-                            }
-                        }
-                    
-                    # 更新时间
-                    if properties.get('更新时间'):
-                        page_properties['更新时间'] = {
-                            "date": {
-                                "start": properties['更新时间'].isoformat()
-                            }
-                        }
-                    
-                    # 文件数量
-                    if '文件数量' in properties:
-                        page_properties['文件数量'] = {
-                            "number": properties['文件数量']
-                        }
-                    
-                    # 链接数量
-                    if '链接数量' in properties:
-                        page_properties['链接数量'] = {
-                            "number": properties['链接数量']
-                        }
-                    
-                    # 状态
-                    if properties.get('状态'):
-                        page_properties['状态'] = {
-                            "select": {
-                                "name": properties['状态']
-                            }
-                        }
-            else:  # page
-                parent = {
-                    "type": "page_id",
-                    "page_id": parent_id
-                }
-                # 普通页面也需要设置标题属性
-                page_properties = {
-                    "title": [
-                        {
-                            "type": "text",
-                            "text": {
-                                "content": title
-                            }
-                        }
+            
+            # 标签
+            if properties.get('标签'):
+                page_properties['标签'] = {
+                    "multi_select": [
+                        {"name": tag} for tag in properties['标签']
                     ]
                 }
-        except Exception as e:
-            logger.error(f"Failed to get parent page info: {e}")
-            # 如果获取父页面信息失败，默认使用数据库类型
-            parent = {
-                "type": "database_id",
-                "database_id": parent_id
-            }
-            # 数据库类型需要设置属性
-            page_properties = {
-                "标题": {
-                    "title": [
-                        {
-                            "type": "text",
-                            "text": {
-                                "content": title
-                            }
-                        }
-                    ]
-                }
-            }
             
-            # 添加自定义属性
-            if properties:
-                # 来源
-                if properties.get('来源'):
-                    page_properties['来源'] = {
-                        "select": {
-                            "name": properties['来源']
-                        }
+            # 置顶状态
+            if '是否置顶' in properties:
+                page_properties['是否置顶'] = {
+                    "checkbox": properties['是否置顶']
+                }
+            
+            # 源链接
+            if properties.get('源链接'):
+                page_properties['源链接'] = {
+                    "url": properties['源链接']
+                }
+            
+            # 创建时间
+            if properties.get('创建时间'):
+                page_properties['创建时间'] = {
+                    "date": {
+                        "start": properties['创建时间'].isoformat()
                     }
-                
-                # 标签
-                if properties.get('标签'):
-                    page_properties['标签'] = {
-                        "multi_select": [
-                            {"name": tag} for tag in properties['标签']
-                        ]
+                }
+            
+            # 更新时间
+            if properties.get('更新时间'):
+                page_properties['更新时间'] = {
+                    "date": {
+                        "start": properties['更新时间'].isoformat()
                     }
-                
-                # 置顶状态
-                if '是否置顶' in properties:
-                    page_properties['是否置顶'] = {
-                        "checkbox": properties['是否置顶']
+                }
+            
+            # 文件数量
+            if '文件数量' in properties:
+                page_properties['文件数量'] = {
+                    "number": properties['文件数量']
+                }
+            
+            # 链接数量
+            if '链接数量' in properties:
+                page_properties['链接数量'] = {
+                    "number": properties['链接数量']
+                }
+            
+            # 状态
+            if properties.get('状态'):
+                page_properties['状态'] = {
+                    "select": {
+                        "name": properties['状态']
                     }
-                
-                # 源链接
-                if properties.get('源链接'):
-                    page_properties['源链接'] = {
-                        "url": properties['源链接']
-                    }
-                
-                # 创建时间
-                if properties.get('创建时间'):
-                    page_properties['创建时间'] = {
-                        "date": {
-                            "start": properties['创建时间'].isoformat()
-                        }
-                    }
-                
-                # 更新时间
-                if properties.get('更新时间'):
-                    page_properties['更新时间'] = {
-                        "date": {
-                            "start": properties['更新时间'].isoformat()
-                        }
-                    }
-                
-                # 文件数量
-                if '文件数量' in properties:
-                    page_properties['文件数量'] = {
-                        "number": properties['文件数量']
-                    }
-                
-                # 链接数量
-                if '链接数量' in properties:
-                    page_properties['链接数量'] = {
-                        "number": properties['链接数量']
-                    }
-                
-                # 状态
-                if properties.get('状态'):
-                    page_properties['状态'] = {
-                        "select": {
-                            "name": properties['状态']
-                        }
-                    }
+                }
         
         # 构建请求体
         payload = {
@@ -420,7 +312,7 @@ class NotionClient:
         logger.debug(
             f"Preparing to create Notion page - "
             f"url: {url} - "
-            f"parent_page_id: {parent_id} - "
+            f"parent_page_id: {parent['database_id']} - "
             f"parent_type: {parent['type']} - "
             f"has_properties: {bool(page_properties)} - "
             f"payload: {json.dumps(payload, ensure_ascii=False)}"
@@ -437,7 +329,7 @@ class NotionClient:
                 
             logger.info(
                 f"Created new Notion page - page_id: {new_page_id} - "
-                f"title: {title} - parent_page_id: {parent_id}"
+                f"title: {title} - parent_page_id: {parent['database_id']}"
             )
             
             return new_page_id
@@ -445,7 +337,7 @@ class NotionClient:
         except NotionPageError as e:
             logger.error(
                 f"Failed to create Notion page - error: {str(e)} - "
-                f"parent_page_id: {parent_id} - "
+                f"parent_page_id: {parent['database_id']} - "
                 f"title: {title}"
             )
             raise

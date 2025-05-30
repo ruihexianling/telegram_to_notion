@@ -22,7 +22,7 @@ logger = setup_logger(__name__)
 NOTION_CONFIG = {
     'NOTION_KEY': NOTION_KEY,
     'NOTION_VERSION': NOTION_VERSION,
-    'PAGE_ID': PAGE_ID
+    'PAGE_ID': DATABASE_ID
 }
 
 # === 管理员消息相关函数 ===

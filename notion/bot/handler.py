@@ -23,7 +23,7 @@ logger = setup_logger(__name__)
 notion_config = NotionConfig({
     'NOTION_KEY': config.NOTION_KEY,
     'NOTION_VERSION': config.NOTION_VERSION,
-    'PAGE_ID': config.PAGE_ID
+    'PAGE_ID': config.DATABASE_ID
 })
 
 # 创建全局消息缓冲区实例

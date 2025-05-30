@@ -8,9 +8,10 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 # Notion API的版本和密钥
-NOTION_VERSION = '2022-06-28'  # 使用当前支持的API版本
+NOTION_VERSION = os.getenv('NOTION_VERSION', '2022-06-28')
 NOTION_KEY = os.getenv('NOTION_KEY')
-DATABASE_ID = os.getenv('DATABASE_ID')  # 替换为你的Notion页面ID
+DATABASE_ID = os.getenv('DATABASE_ID')  # 数据库 ID
+# PAGE_ID = os.getenv('DATABASE_ID')  # 暂时兼容
 API_PAGE_ID = os.getenv('API_PAGE_ID') # 因为database模式不允许在数据库下直接创建块，因此配置一个接口专用的默认页面
 
 # Webhook配置

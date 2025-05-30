@@ -29,7 +29,7 @@ class NotionConfig:
         if not notion_key.startswith('ntn_'):
             raise NotionConfigError("Notion API Key 必须以 'ntn_' 开头")
 
-        # 验证 PAGE_ID 格式
+        # 验证 DATABASE_ID 格式
         page_id = self._config['PAGE_ID']
         if not page_id:
             raise NotionConfigError("PAGE_ID 不能为空")
