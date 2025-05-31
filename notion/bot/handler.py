@@ -156,16 +156,44 @@ async def railway_webhook(request: Request):
             f"🚨 Railway {data.get('type', 'Unknown')} 通知\n\n"
             f"📦 项目信息:\n"
             f"• 名称: {data.get('project', {}).get('name', 'Unknown')}\n"
-            f"• 描述: {data.get('project', {}).get('description', 'Unknown')}\n"
+            f"• 描述: {data.get('project', {}).get('description', 'Unknown')}\n\n"
             f"🌍 环境信息:\n"
             f"• 名称: {data.get('environment', {}).get('name', 'Unknown')}\n\n"
             f"📝 事件详情:\n"
             f"• 类型: {data.get('type', 'Unknown')}\n"
+            f"• 状态: {data.get('status', 'Unknown')}\n"
         )
 
         # 根据不同类型添加特定信息
-        if data.get('type') == 'DEPLOY' and data.get('deployment', {}).get('creator'):
-            message += f"• 操作者: {data['deployment']['creator'].get('name', 'Unknown')}\n"
+        if data.get('type') == 'DEPLOY':
+            deployment = data.get('deployment', {})
+            meta = deployment.get('meta', {})
+            service = data.get('service', {})
+            
+            # 添加部署信息
+            if deployment.get('creator'):
+                message += f"• 操作者: {deployment['creator'].get('name', 'Unknown')}\n"
+            
+            # 添加服务信息
+            if service:
+                message += f"• 服务: {service.get('name', 'Unknown')}\n"
+            
+            # 添加部署元数据
+            if meta:
+                message += f"\n🔧 部署配置:\n"
+                if meta.get('repo'):
+                    message += f"• 仓库: {meta['repo']}\n"
+                if meta.get('branch'):
+                    message += f"• 分支: {meta['branch']}\n"
+                if meta.get('commitMessage'):
+                    message += f"• 提交信息: {meta['commitMessage']}\n"
+                if meta.get('commitHash'):
+                    message += f"• 提交哈希: {meta['commitHash'][:8]}\n"
+                if meta.get('cronSchedule'):
+                    message += f"• 定时任务: {meta['cronSchedule']}\n"
+                if meta.get('startCommand'):
+                    message += f"• 启动命令: {meta['startCommand']}\n"
+                    
         elif data.get('type') == 'BUILD':
             message += f"• 构建状态: {data.get('status', 'Unknown')}\n"
         elif data.get('type') == 'SERVICE':
@@ -174,7 +202,7 @@ async def railway_webhook(request: Request):
             message += f"• 域名状态: {data.get('status', 'Unknown')}\n"
             
         # 添加时间信息
-        message += f"• 时间: {beijing_time}\n"
+        message += f"\n⏰ 时间: {beijing_time}\n"
         
         # 如果有错误信息，添加到消息中
         if data.get('error'):
