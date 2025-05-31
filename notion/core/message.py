@@ -180,7 +180,7 @@ class Message:
     @property
     def title(self) -> str:
         """获取消息标题"""
-        return "Telegram消息"
+        return self.content[:50] if self.content else "Telegram消息"
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
